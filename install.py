@@ -15,6 +15,11 @@ import shutil
 import sys
 from pathlib import Path
 
+# Windows GBK 编码兼容
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 SKILLS_DIR = Path(__file__).parent / "skills"
 TARGET_DIR = Path.home() / ".claude" / "skills"
 
