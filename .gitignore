@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary files
+_step*.json
+*.tmp
+*.log
+
+# Test outputs
+tests/**/output/
+.review/
+
+# Large files
+*.pdf
+!tests/**/fixtures/*.pdf
+
+# Word lock files
+~$*
