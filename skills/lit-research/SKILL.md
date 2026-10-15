@@ -1,6 +1,6 @@
 ---
 name: lit-research
-version: 1.0.0
+version: 1.0.1
 description: |
   文献调研技能：给定研究主题，通过 deep-research 检索文献，与本地文献库查重去重，
   下载原文并提取全文，按标准卡片格式建立资料卡片，进行质量评分和去AI化处理，
@@ -128,6 +128,8 @@ Step 8 入库集成与终验（rebuild_index.py + validate_card.py V1–V6 → �
   已有本地 PDF 时以 `--file <路径>` 替换 `--url`。
 - **输入**：`_step4_decisions.json`（编号/名称/URL）。
 - **输出**：`<库路径>/NNN_XXX/NNN_src_XXX.pdf`、`NNN_extract_XXX.txt`、`_step5_download_NNN.json`。
+  提取文本逐页植入页标记 `%% [PDF p.N]`（页级锚点标准格式，供 paper-review
+  anchor_map.py 做 pdf 源定位）与 `--- Page N ---`（兼容旧格式）。
 - **验证**：`success == true` 且 `chars > 0`。
   - 下载失败（付费墙/反爬）→ 给出 URL + 命名规则 `NNN_src_XXX.pdf` 请用户手工下载放入
     `NNN_XXX/`，**暂停等待用户确认后再继续**（确认后以 `--file` 重跑提取）；

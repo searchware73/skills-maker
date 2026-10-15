@@ -1,6 +1,6 @@
 ---
 name: paper-review
-version: 1.0.0
+version: 1.1.0
 description: |
   论文审查技能：对论文或章节进行去AI化审查、多智能体研讨、同行评审，
   组织修改并循环验证至质量收敛。支持正式模式（Workflow多代理）和
@@ -26,13 +26,15 @@ allowed-tools:
 ## 用法
 
 ```
-/paper-review <文件路径> [--section X.Y] [--focus de-ai|discussion|peer] [--quick] [--rounds N] [--roles R1,R2..] [--no-fix]
+/paper-review <文件路径> [--section X.Y] [--source <源文件|源目录>] [--format tex|docx|pdf] [--focus de-ai|discussion|peer] [--quick] [--rounds N] [--roles R1,R2..] [--no-fix]
 ```
 
 | 参数 | 说明 | 默认 |
 |------|------|------|
 | `<文件路径>` | 待审查论文 Markdown 文件（必填） | — |
 | `--section X.Y` | 仅审查指定小节（如 1.1，自动覆盖其子小节） | 全文 |
+| `--source PATH` | 源文件或源目录（.tex 目录 / .docx / pdf提取.txt），启用源位置三轨定位 | 不启用 |
+| `--format FMT` | 源格式 `tex`/`docx`/`pdf`（缺省按扩展名推断，目录→tex） | 自动推断 |
 | `--focus` | 只执行指定阶段：`de-ai` / `discussion` / `peer`，之后直达 Step 6 | 全流程 |
 | `--quick` | 快速模式：单实例角色扮演代替 Workflow 多代理 | 正式模式 |
 | `--rounds N` | 收敛循环最大轮数 | 3 |
@@ -61,6 +63,8 @@ allowed-tools:
 ├── discussion_minutes.md  ← 阶段2：研讨纪要（merge_findings.py 的来源之一）
 ├── peer_reports.md        ← 阶段3：ars-reviewer 评审报告（+结构化发现）
 ├── merged_findings.md     ← 阶段4：合并发现清单 P0/P1/P2
+├── anchor_requests.json   ← 阶段4：源定位请求（--source 时；每条发现的引文+坐标）
+├── anchor_map.json        ← Step 0 init / 阶段4 fill：三轨定位表（anchor_map.py 维护）
 ├── revision_log.md        ← 阶段4/5：修改日志（track_revisions.py 维护）
 └── convergence.md         ← 阶段5：收敛记录（convergence_check.py 维护）
 ```
@@ -77,8 +81,15 @@ allowed-tools:
 - **验证**：`success == true`；否则向用户报告 `problems` 并终止
 - 若指定 `--section`：后续所有阶段只读取/修改 `section_range` 行范围内的内容
   （Read 用 offset/limit，Edit 前确认目标行在范围内）
+- 若提供 `--source`（三轨定位，见 references/anchor-locator.md）：
+  执行：`Bash("python {SKILL_DIR}/scripts/anchor_map.py --review-dir {review_dir} init --draft {file_path} --source <源路径> [--format tex|docx|pdf]")`
+  - **验证**：`success == true`，生成空 `{review_dir}/anchor_map.json`；
+    失败（源不存在/格式无法推断）→ AskUserQuestion 请用户修正或放弃三轨定位（降级双轨，报告注明）
 - `--focus` 路由：`de-ai`→阶段1后跳 Step 6；`discussion`→从阶段2开始；`peer`→从阶段3开始；
   缺省全流程。被跳过阶段的缺失来源文件由 merge_findings.py 自动忽略
+- 若被审文件是 pandoc/PDF 提取的转换产物：执行 `Read("{SKILL_DIR}/references/format-notes.md")`，
+  按其清单**先核对转换质量**（摘要在位/公式与表格未破损/页标记存在）再进入阶段1；
+  破损处记入报告，不计入 P0/P1/P2
 
 ### 阶段1 — 去AI审查（4技能串行，全部实际调用）
 
@@ -110,58 +121,58 @@ allowed-tools:
 
 执行：`Workflow(script="<下方工作流脚本全文>", args={"file_path": "{file_path}", "section_range": {section_range}, "review_dir": "{review_dir}", "roles": ["A1-方法论批评家", "A2-领域专家", "A3-写作编辑", "A4-魔鬼代言人", "A5-审稿人视角"], "skill_dir": "{SKILL_DIR}"})`
 
+> **args 传递纪律**：args 必须按 **JSON 对象**传递（不得字符串化）；即便如此，
+> harness 仍可能将其字符串化送达脚本（实测踩坑两次），**脚本侧必须做 typeof 防御解析**。
+> API 要点：`parallel()` 接受 **thunk 数组**（`() => Promise`，传 Promise 会并发失控）；
+> `agent()` 签名为 `agent(promptString, opts?)`，合法 opts 键为
+> `label/phase/schema/model/effort/isolation/agentType`——**对象式入参与 `tools` 键均无效**。
+
 ```javascript
 // ── 阶段2 Workflow 脚本：多智能体研讨（3阶段协议见 discussion-protocol.md）──
 // args: file_path, section_range, review_dir, roles, skill_dir
-const ROLES = args.roles;
-const SCOPE = args.section_range
-  ? `（仅审查第 ${args.section_range[0]}–${args.section_range[1]} 行，用 Read 的 offset/limit 读取）`
+// 防御解析：args 可能被 harness 字符串化（实测踩坑），必须 typeof 检查
+const A = (typeof args === "string") ? JSON.parse(args) : (args || {});
+const ROLES = A.roles || ["A1-方法论批评家", "A2-领域专家", "A3-写作编辑", "A4-魔鬼代言人", "A5-审稿人视角"];
+const SCOPE = A.section_range
+  ? `（仅审查第 ${A.section_range[0]}–${A.section_range[1]} 行，用 Read 的 offset/limit 读取）`
   : "（全文）";
 const COMMON = [
-  `角色定义与检查清单见 ${args.skill_dir}/references/agent-roles.md，`,
-  `研讨协议与输出格式见 ${args.skill_dir}/references/discussion-protocol.md，`,
-  `审查清单见 ${args.skill_dir}/references/review-checklist.md。`,
-  `审查对象：${args.file_path}${SCOPE}。这是学报综述论文，`,
+  `角色定义与检查清单见 ${A.skill_dir}/references/agent-roles.md，`,
+  `研讨协议与输出格式见 ${A.skill_dir}/references/discussion-protocol.md，`,
+  `审查清单见 ${A.skill_dir}/references/review-checklist.md。`,
+  `审查对象：${A.file_path}${SCOPE}。这是学报综述论文，`,
   `注意「文献[N] XXX」逐篇引用平行句式是学报标准风格，不属于AI写作问题。`,
+  `只读审查：不得修改被审论文，产物一律 Write 到指定路径。`,
 ].join("\n");
 
-// 阶段1：独立审查 —— 5个角色并行，互相隔离（禁止交叉沟通）
-const reports = await parallel(ROLES.map(role => agent({
-  name: role,
-  prompt: [
+// 阶段1：独立审查 —— 各角色并行，互相隔离（禁止交叉沟通）
+// parallel() 必须传 thunk 数组；agent() 第一参数是 prompt 字符串
+const reports = await parallel(ROLES.map(role => () =>
+  agent([
     `你是「${role}」。${COMMON}`,
     `按研讨协议「阶段1：独立审查」输出格式，产出500-800字结构化评审报告：`,
     `每条发现标注严重度 [P0]/[P1]/[P2] + 位置（§X.Y 第N段/行号）+ 问题 + 建议，`,
     `末尾附四维评分（方法论/写作/创新性/总体，各N/10）。`,
-    `写入 ${args.review_dir}/agent_reports/${role}.md。不得读取其他角色的报告。`,
-  ].join("\n"),
-  tools: ["Read", "Grep", "Glob", "Write"],
-})));
+    `用 Write 写入 ${A.review_dir}/agent_reports/${role}.md。不得读取其他角色的报告。`,
+  ].join("\n"), { label: role, phase: "独立审查" })
+));
 
 // 阶段2：聚焦讨论 —— 主持人提取争议点，组织相关角色最多2-3轮回应
-await agent({
-  name: "主持人-讨论",
-  prompt: [
-    `读取 ${args.review_dir}/agent_reports/ 下全部评审报告（共${ROLES.length}份）。${COMMON}`,
-    `按研讨协议「阶段2：聚焦讨论」：提取争议点（角色间结论冲突、严重度分歧大者），`,
-    `按 P0 优先排序；每个争议点组织相关角色各200字回应（必须引用具体段落、提出可操作修改），`,
-    `最多2-3轮；总结共识与分歧，写入 ${args.review_dir}/debate_summary.md。`,
-  ].join("\n"),
-  tools: ["Read", "Grep", "Glob", "Write", "Agent"],
-});
+await agent([
+  `你是研讨主持人。读取 ${A.review_dir}/agent_reports/ 下全部评审报告（共${ROLES.length}份）。${COMMON}`,
+  `按研讨协议「阶段2：聚焦讨论」：提取争议点（角色间结论冲突、严重度分歧大者），`,
+  `按 P0 优先排序；每个争议点组织相关角色各200字回应（必须引用具体段落、提出可操作修改），`,
+  `最多2-3轮；总结共识与分歧，用 Write 写入 ${A.review_dir}/debate_summary.md。`,
+].join("\n"), { label: "主持人-讨论", phase: "聚焦讨论" });
 
 // 阶段3：共识决议 —— 产出研讨纪要（merge_findings.py 的解析来源）
-await agent({
-  name: "主持人-纪要",
-  prompt: [
-    `汇总 ${args.review_dir}/agent_reports/ 与 debate_summary.md。${COMMON}`,
-    `严格按研讨协议「纪要模板」产出：共识发现（### P0 — 必须修改 / ### P1 — 重要修改 /`,
-    `### P2 — 建议修改 三个小节，表格列名固定为 | # | 位置 | 问题 | 建议 | 支持角色 |）、`,
-    `分歧记录、评分汇总。写入 ${args.review_dir}/discussion_minutes.md。`,
-    `不得更改小节标题与表格列名（下游脚本按此解析）。`,
-  ].join("\n"),
-  tools: ["Read", "Write"],
-});
+await agent([
+  `你是研讨主持人。汇总 ${A.review_dir}/agent_reports/ 与 debate_summary.md。${COMMON}`,
+  `严格按研讨协议「纪要模板」产出：共识发现（### P0 — 必须修改 / ### P1 — 重要修改 /`,
+  `### P2 — 建议修改 三个小节，表格列名固定为 | # | 位置 | 问题 | 建议 | 支持角色 |）、`,
+  `分歧记录、评分汇总。用 Write 写入 ${A.review_dir}/discussion_minutes.md。`,
+  `不得更改小节标题与表格列名（下游脚本按此解析，且对叙述性小节启用白名单跳过）。`,
+].join("\n"), { label: "主持人-纪要", phase: "共识决议" });
 ```
 
 **验证**：`{review_dir}/discussion_minutes.md` 存在，且含 P0/P1/P2 三个小节与评分汇总；
@@ -206,6 +217,20 @@ Reject=4；介于两档取中值±1按意见条数微调，见 convergence-crite
 
 - 解析 stdout JSON（p0/p1/p2/total），Read merged_findings.md 获取逐项内容
 - **验证**：输出文件存在；total=0 时报告用户"无待修改项"，跳到阶段5
+- **手工语义归并（必做）**：脚本按「位置+类型」机械去重，跨来源去重能力弱
+  （`duplicates_removed` 常为 0）。Read merged_findings.md 后按下述规则人工归并：
+  1. 同一问题被多来源命中 → 合并为一项，**严重度取最高**，来源字段并列保留
+  2. 归并时**保留裁决轨迹**：研讨中经辩论改判/降级的，在条目后注明「（研讨裁决：…）」
+  3. **撤回项不得复活**：研讨纪要或用户已明确否决/撤回的意见，即使再次出现在
+     其他来源，也不得重新列入待修改清单（注明「已撤回」后跳过）
+- 若存在 anchor_map.json（Step 0 已 init），填充三轨定位：
+  - a. 从 merged_findings.md 逐条提取**原句引文**（在 {file_path} 中 ≥15字且唯一的片段），
+    用 **Write**（勿用 heredoc）写 `{review_dir}/anchor_requests.json`：
+    `[{"id": "f1", "quote": "…", "draft_line": N, "structural": "§X.Y 表N/式(N)"}, …]`
+    （structural 为结构坐标：章/节/表/公式编号，跨格式最稳，反查失败时的兜底）
+  - b. 执行：`Bash("python {SKILL_DIR}/scripts/anchor_map.py --review-dir {review_dir} fill --requests {review_dir}/anchor_requests.json")`
+  - c. **验证**：`success == true`；`ambiguous`/`not_found` 不是错误——按
+    references/anchor-locator.md 回退结构坐标，Step 6 报告中如实标注即可
 
 4.2 逐项确认与修改（顺序：P0 → P1 → P2）：
 
@@ -254,15 +279,25 @@ Reject=4；介于两档取中值±1按意见条数微调，见 convergence-crite
 
 6.1 执行：`Bash("python {SKILL_DIR}/scripts/track_revisions.py --summary --review-dir {review_dir}")`
 
-6.2 Read `{review_dir}/convergence.md`（评分轨迹）与 merged_findings.md 中标记跳过的条目。
+6.2 Read `{review_dir}/convergence.md`（评分轨迹）与 merged_findings.md 中标记跳过的条目；
+若存在 `{review_dir}/anchor_map.json`，一并 Read（供问题表「源位置」列取值）。
 
-6.3 向用户输出最终报告（Markdown）：
+6.3 向用户输出最终报告（Markdown，用 **Write** 写入 `{review_dir}/final_report.md` 后再呈现）：
 
-- **审查对象**：文件、范围（全文/§X.Y）、模式（正式/快速、--no-fix 与否）
+- **审查对象**：文件、范围（全文/§X.Y）、模式（正式/快速、--no-fix 与否）；
+  经过 pandoc/PDF 转换的稿件须注明转换链路与抽查结果（references/format-notes.md），
+  并声明「数值核验以编译 PDF 为准」（适用时）
+- **定位坐标说明**（启用三轨定位时，报告头部注明）：
+  工作坐标=draft 行号（编辑后漂移）；源坐标=tex 文件:行 / docx 段落序 / pdf 页码
+  （源文件被编辑后同样漂移）；结构坐标=章节/表/公式编号+原句引文（**不随编辑漂移，
+  为兜底锚点**）。反查失败/歧义项源位置显示 `—（回退结构坐标）`
 - **阶段1 去AI**：4技能发现数/修改数（deai_log.md 表格）
 - **阶段2 研讨**：参与角色、共识发现 P0/P1/P2 数、未解决分歧
 - **阶段3 同行评审**：Editorial Decision、映射评分
-- **阶段4/5 修改**：total 及 by_source、by_severity 分布；跳过项清单
+- **阶段4/5 修改**：total 及 by_source、by_severity 分布；跳过项清单。
+  问题表在「位置」列基础上增加**「源位置」列**（三轨并列），如：
+  `| # | 严重度 | 工作坐标 | 源位置 | 结构坐标 | 问题 | 处理 |`
+  （源位置取自 anchor_map.json 的 source_loc；ambiguous/not_found 项回退结构坐标）
 - **收敛状态**：轮数、convergence.md 评分轨迹表、是否收敛；未收敛时列出未解决问题清单
 - **产物路径**：.review/ 下全部文件
 
@@ -276,14 +311,17 @@ Reject=4；介于两档取中值±1按意见条数微调，见 convergence-crite
 | discussion-protocol.md | 3阶段研讨协议与纪要模板 | 阶段2 |
 | review-checklist.md | 4维度审查清单（去AI/学术规范/写作质量/结构完整性） | 阶段1/2/5 |
 | convergence-criteria.md | 收敛条件、停滞处理、评分来源与映射 | 阶段5 |
+| anchor-locator.md | 源位置三轨定位说明、反查机制与诚实边界 | Step 0/阶段4/Step 6 |
+| format-notes.md | pandoc/PDF 转换与提取注意事项（实测踩坑固化） | Step 0/Step 6 |
 
 ## 脚本清单（scripts/，均支持 --help，输出 JSON，UTF-8）
 
 | 脚本 | 用途 | 调用时机 |
 |------|------|---------|
 | setup_env.py | 校验文件、定位章节行号、建 .review/ | Step 0 |
+| anchor_map.py | 三轨定位表 init/fill（md行↔源定位↔结构坐标） | Step 0 init / 阶段4 fill |
 | deai_audit.py | 去AI日志：start/log/verify | 阶段1 |
-| merge_findings.py | 三来源发现合并、去重、P0/P1/P2 分级 | 阶段4 |
+| merge_findings.py | 三来源发现合并、去重、P0/P1/P2 分级（纪要启用小节白名单防噪声） | 阶段4 |
 | track_revisions.py | 修改日志：逐条 log / summary 统计 | 阶段4/5 |
 | convergence_check.py | 收敛/停滞判定，维护 convergence.md | 阶段5 |
 
@@ -294,3 +332,15 @@ Reject=4；介于两档取中值±1按意见条数微调，见 convergence-crite
 - Skill 调用失败：向用户报告；经用户同意可降级（如 ars-reviewer 不可用时，按
   review-checklist.md 维度2/4 自行评审），**降级必须在最终报告中注明**
 - Workflow 不可用或失败：自动降级为快速模式（--quick 流程），并告知用户
+- 三轨定位反查失败/歧义：按 references/anchor-locator.md 回退结构坐标（不算错误，报告如实标注）；
+  `--source` 未提供或 init 失败：全程双轨（工作坐标+结构坐标），报告注明
+
+### 写入与路径纪律（强制，实测踩坑固化）
+
+1. **长 prose 一律用 Write 工具**（报告、结构化发现清单、anchor_requests.json 等
+   含引号/撇号文本），**禁止 Bash heredoc**——撇号/引号与 heredoc 定界符冲突
+   会导致 `unexpected EOF`（实测：`Cohen's dz` 触发）
+2. **脚本调用与 Edit/Read 一律绝对路径**：Bash 的 cwd 跨调用持久化但不可依赖，
+   相对路径 Edit 实测报 File does not exist
+3. **跨工具传文件禁用 `/tmp`**：Git Bash 的 `/tmp` 与 Windows 路径体系不同，
+   Read 工具无法读取；中间文件一律放 `{review_dir}` 或项目工作目录内

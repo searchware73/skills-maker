@@ -6,8 +6,10 @@
   1. 从 URL 下载 PDF（或使用本地已有 PDF）
   2. 命名为 NNN_src_XXX.pdf，文本提取为 NNN_extract_XXX.txt，写入 output-dir
   3. 提取策略：前 8 页 + 后 3 页（当总页数 > 8），每页最多 3000 字符
-  4. 处理 Windows GBK 编码问题
-  5. 以 JSON 输出结果到 stdout
+  4. 每页植入页标记「%% [PDF p.N]」（页级锚点标准格式，供 paper-review
+     anchor_map.py 做 pdf 源定位）与「--- Page N ---」（兼容旧格式）
+  5. 处理 Windows GBK 编码问题
+  6. 以 JSON 输出结果到 stdout
 
 依赖：PyMuPDF (fitz), requests
 
@@ -118,7 +120,11 @@ def extract_text(pdf_path, extract_path):
             text = ""
         if text.strip():
             near_end = " (near end)" if i >= head_end else ""
-            parts.append("\n--- Page %d%s ---" % (i + 1, near_end))
+            # 页标记双轨：%% [PDF p.N] 为页级锚点标准格式（paper-review
+            # anchor_map.py 按此做 pdf 源定位）；--- Page N --- 保留兼容旧下游
+            # 注意：% 格式化中 %% 转义为单个 %，故字面双百分号需写 %%%%
+            parts.append("\n%%%% [PDF p.%d]" % (i + 1))
+            parts.append("--- Page %d%s ---" % (i + 1, near_end))
             parts.append(text[:CHARS_PER_PAGE])
             char_count += len(text[:CHARS_PER_PAGE])
     doc.close()

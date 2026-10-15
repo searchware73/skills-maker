@@ -6,8 +6,8 @@ Claude Code 自定义技能开发与发布工作空间。
 
 | 技能 | 版本 | 说明 |
 |------|------|------|
-| **lit-research** | 1.0.0 | 文献调研：deep-research 检索 → 查新 → 下载提取 → 建卡 → 去AI化 → 验证入库 |
-| **paper-review** | 1.0.0 | 论文审查：去AI审查 → 多智能体研讨 → 同行评审 → 修改执行 → 收敛循环 |
+| **lit-research** | 1.0.1 | 文献调研：deep-research 检索 → 查新 → 下载提取 → 建卡 → 去AI化 → 验证入库 |
+| **paper-review** | 1.1.0 | 论文审查：去AI审查 → 多智能体研讨 → 同行评审 → 修改执行 → 收敛循环（支持源位置三轨定位） |
 
 ## 安装
 
@@ -46,9 +46,18 @@ python install.py list                 # 查看状态
 /paper-review 论文.md --quick          # 快速模式（单实例）
 /paper-review 论文.md --focus de-ai    # 仅去AI审查
 /paper-review 论文.md --no-fix         # 仅报告不修改
+/paper-review 论文.md --source tex目录 # 源位置三轨定位（tex/docx/pdf）
 ```
 
 流程：去AI审查(4技能) → 多智能体研讨(5角色) → 同行评审(ars-reviewer) → 修改执行 → 收敛循环
+
+## 测试
+
+```bash
+python tests/test_paper_review/test_anchor_map.py       # 三轨定位（11 用例）
+python tests/test_paper_review/test_merge_findings.py   # 合并+白名单防噪声（7 用例）
+python tests/test_lit_research/test_extract_pdf.py      # PDF 页标记（需 PyMuPDF）
+```
 
 ## 依赖
 
@@ -67,12 +76,13 @@ skills/                  技能目录
     references/          可替换模板（4个）
   paper-review/          论文审查技能
     SKILL.md             流程编排
-    scripts/             Python 脚本（5个）
-    references/          可替换模板（4个）
+    scripts/             Python 脚本（6个，含 anchor_map.py 三轨定位）
+    references/          可替换模板（6个，含 anchor-locator.md / format-notes.md）
 shared/scripts/          共享模块
 install.py               安装工具
 tests/                   测试用例
 docs/                    文档
+CHANGELOG.md             变更日志
 ```
 
 ## 自定义

@@ -10,6 +10,9 @@
   2. 从各文件解析结构化发现（两类格式均支持）：
        a) Markdown 表格：含「位置/问题/建议」类列的表（严重度取所在小节标题 P0/P1/P2）
        b) 列表条目：形如「1. [P0] 位置：§1.2 第3段 / 问题：… / 建议：…」
+     discussion_minutes.md 启用小节白名单：只解析「共识发现」及 P0/P1/P2 小节，
+     叙述性小节（参与角色/分歧记录/评分汇总/决议信散文）内的表格行与
+     含严重度字样的文字不解析为发现（防噪声）。
   3. 按「位置 + 问题类型」去重（同类同位置视为同一问题，合并来源标注）
   4. 严重度分级（显式 [P0]/[P1]/[P2] 标注优先，否则按关键词推断）：
        P0 必须修改：事实错误、引用错误、逻辑断裂
@@ -44,10 +47,20 @@ if sys.platform == "win32":
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 SOURCES = [
-    ("deai_log.md", "去AI审查"),
-    ("discussion_minutes.md", "多智能体研讨"),
-    ("peer_reports.md", "同行评审"),
+    # (文件名, 来源标签, 是否启用小节白名单)
+    # 白名单：discussion_minutes.md 的叙述性小节（参与角色/分歧记录/评分汇总）中
+    # 含 P0/P1/P2 字样或表格行的散文会被误解析为发现（实测噪声来源），
+    # 故只解析「共识发现」及 P0/P1/P2 严重度小节下的内容。
+    ("deai_log.md", "去AI审查", False),
+    ("discussion_minutes.md", "多智能体研讨", True),
+    ("peer_reports.md", "同行评审", False),
 ]
+
+# 白名单模式下允许解析的小节标题（## / ### 级）
+ALLOWED_SECTION_RE = re.compile(
+    r"(共识发现|结构化发现|\bP[012]\b|必须修改|重要修改|建议修改)", re.IGNORECASE)
+# 明确排除的叙述性小节（即使其中出现严重度字样也不解析）
+PROSE_SECTION_RE = re.compile(r"(参与角色|分歧记录|评分汇总|背景|说明|决议信)")
 
 # 关键词 → (级别, 类型标签)。类型标签用于「位置+类型」去重。
 P0_RULES = [
@@ -233,20 +246,35 @@ def parse_block_item(lines, i, source_label):
             "sugg": fields["sugg"] or "", "sev": sev, "tag": tag}, j
 
 
-def parse_source(path, source_label):
-    """解析单个来源文件，返回 finding 列表"""
+def parse_source(path, source_label, whitelist=False):
+    """解析单个来源文件，返回 finding 列表。
+    whitelist=True 时启用小节白名单：只解析标题匹配 ALLOWED_SECTION_RE 的小节，
+    叙述性小节（参与角色/分歧记录/评分汇总等）内的表格行与含严重度字样的散文一律跳过。"""
     if not os.path.isfile(path):
         return None
     with open(path, "r", encoding="utf-8-sig") as f:
         lines = f.read().splitlines()
     findings = []
     cur_sev = None
+    allowed = not whitelist          # 白名单模式下，文件头（首个标题前）不解析
     i, n = 0, len(lines)
     while i < n:
         line = lines[i]
         is_head, sev = heading_severity(line)
         if is_head:
             cur_sev = sev
+            if whitelist:
+                head_text = line.lstrip("#").strip()
+                if PROSE_SECTION_RE.search(head_text):
+                    allowed = False
+                elif ALLOWED_SECTION_RE.search(head_text):
+                    allowed = True
+                elif sev is None:
+                    allowed = False  # 其他无严重度标题：保守关闭
+                # 含 P0/P1/P2 的标题已被 ALLOWED_SECTION_RE 覆盖 → allowed=True
+            i += 1
+            continue
+        if not allowed:
             i += 1
             continue
         s = line.strip()
@@ -356,9 +384,9 @@ def main():
     output = args.output or os.path.join(args.review_dir, "merged_findings.md")
 
     all_findings, parsed, missing = [], [], []
-    for fname, label in SOURCES:
+    for fname, label, whitelist in SOURCES:
         fpath = os.path.join(args.review_dir, fname)
-        found = parse_source(fpath, label)
+        found = parse_source(fpath, label, whitelist)
         if found is None:
             missing.append(fname)
             print("警告：来源文件不存在，跳过: %s" % fpath, file=sys.stderr)
