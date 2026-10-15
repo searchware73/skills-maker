@@ -29,6 +29,8 @@ python install.py list                 # 查看状态
 
 安装后重启 Claude Code，技能即可通过 `/lit-research` 或 `/paper-review` 调用。
 
+> 在新机器上同步工作空间与安装技能，见 [docs/SYNC-GUIDE.md](docs/SYNC-GUIDE.md)。
+
 ## 使用方法
 
 ### lit-research（文献调研）
