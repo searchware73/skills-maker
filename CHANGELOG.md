@@ -1,5 +1,83 @@
 # CHANGELOG
 
+## 2026-11-08 — paper-review v2.0.0（架构级重构）
+
+按 `docs/handoff-20261108-paper-review-v2.md` 规格实施
+（证据基础：li/xue/he/zhang/q10/仿真稿件 5+ 篇真实审阅复盘；
+用户确认决策①–⑪）。lit-research 不变（v1.0.1）。
+
+### 架构重构（决策①②③）
+
+- **阶段2+阶段3 合并为单面板**：七席（S1 EIC/S2 方法论/S3 领域/S4 写作编辑/
+  S5 跨学科/S6 魔鬼代言人/**S7 数值审计新专席**），职责边界互不重叠；
+  保留原阶段2 辩论-撤回机制与原阶段3 编辑决议信/验收标准两侧独占产出
+  （`references/panel-roles.md` 取代 agent-roles.md）
+- **去AI审查后置**（内容审查决定稿件生死，优先执行）且改为**多智能体研讨模式**：
+  2a 四技能代理并行 audit-only → 2b 交叉质询（模式堆叠合并）→ 2c 主持人终裁
+  （确认清单 D-# + 豁免清单留痕 + 与阶段1 重叠打标）；主上下文零技能目录加载
+  （`references/deai-discussion-protocol.md`）
+- 垄断规则：结构核查仅 S1、数值复算仅 S7、引文格式仅 bib_lint.py——消除重复上报源
+
+### 新决策④–⑪
+
+- **④ doctype 准则绑定**：`--doctype` 8 类型（full-paper/thesis/proposal/
+  problem-collection/extended-abstract/technical-report/section-draft/review/other:），
+  必备/豁免/置换/合规四组规则（`references/doctype-criteria.md` + setup_env.py
+  机器版）；未声明必须 AskUserQuestion，禁止臆测；类型适配异议单条仲裁；
+  q10「零参考文献误报 P0」案根治
+- **⑤ 同目录多版本与复审协议**：v1 源留根、v2+ 入 `sources/v<N>/`、产物按
+  `.review/r<N>/` 轮次路由；config.json 为跨轮唯一权威源（doctype/豁免/撤回/裁决
+  继承）；核验式复审=diff 驱动分域 + R&R 追溯矩阵（不得橡皮图章）+ 席位裁剪；
+  chain.md 版本谱系；`migrate_rounds.py` 存量迁移（`references/re-review-protocol.md`）
+- **⑥ 转换审计前置**：`conversion_audit.py` 源侧 vs draft 结构计数（tex 环境/
+  docx zipfile+ET/pdf 页标记），丢失清单注入配置卡（xue 案制度化）
+- **⑦ 数值检查库**：`numeric_checks/`（weighted_identity/table_sums/
+  abstract_numbers/percent_basis 四检查器 + S7 复算表输出；xue 表3.1、
+  仿真稿 Ex、li 表3.4 三案为测试夹具）
+- **⑧ 引文 lint 脚本化**：`bib_lint.py`（GB/T 7714 空会议名/双句点/逗号空格/
+  页码格式/键名-年份/arXiv-正式发表（CrossRef 可选联网）/姓名倒置/双语配对）；
+  S3 改为仅语义核对
+- **⑨ 专家意见对账**：`--expert-comments` + `expert_reconcile.py`
+  init/match/verify/show；隔离区机制强制「遗漏项读原文核实后才可入报告」
+  （he-paper「多域客户端」误判回归用例）
+- **⑩ 英文摘要专检**：2a 审计代理固定四项（机译痕迹/中英术语一致/全半角/Tier1）
+- **⑪ Step 0 成本预估**：席位/代理数/墙钟/token 量级/--quick 建议，用户可当场改判
+
+### 可靠性（§五）
+
+- **RESUME.md 制度化**：`resume.py`（init/set/next/show/check），每阶段边界强制更新，
+  跨终端续跑凭此恢复
+- **代理级 API 故障重试**：子代理 API 错误 ≠ 阶段失败，重试该代理 ≤3 次，
+  不得重跑整阶段（仿真稿 400 Arrearage 案）
+- 密码保护 PDF 回退链（PyMuPDF 抽文本→抽表→渲染页图）；docx 高亮观察不计缺陷
+  但提请清除（均入 SKILL.md 失败回退与报告模板）
+
+### 脚本变更
+
+- `setup_env.py` v2：版本/轮次解析与 r<N>/ 路由、config.json 维护（合并保留）、
+  --doctype 绑定与检测线索、覆盖护栏、--re-review/--response/--expert-comments/
+  --panel/--new-run、estimate 输出（v1 旧键全保留）
+- `merge_findings.py` v2：`--run-dir` 双权威清单模式（revision_roadmap.md R-# +
+  deai_confirmed.md D-#，重叠→S-# 交叉引用不重复计入，撤回记录自动跳过，
+  Decision/质量评分提取）；`--review-dir` v1 三来源模式保留一个版本
+- 新增：resume.py / diff_scope.py / conversion_audit.py / numeric_checks/（4检查器）/
+  bib_lint.py / expert_reconcile.py / migrate_rounds.py；deai_audit.py 降为 v1 遗留
+- 新增 `templates/`：final-report.md（类型适配/数据完整性关切/专家对账表/三轨列/
+  CRITICAL 专节）、chain.md
+
+### 测试（新增 8 个测试文件，全部通过）
+
+test_setup_env_v2（15）/ test_merge_findings_v2（8）/ test_resume（20）/
+test_diff_scope（13）/ test_conversion_audit（15）/ test_numeric_checks /
+test_bib_lint / test_expert_reconcile（22）/ test_migrate_rounds（9）；
+v1 回归（test_anchor_map 11、test_merge_findings 7、test_extract_pdf）保持全绿；
+SKILL.md 两段 Workflow 脚本经 node --check 验证
+
+### 版本
+
+- paper-review 1.1.0 → **2.0.0**（--quick 映射 S1+S6 两席；--focus 取值改为
+  panel/de-ai；--roles 参数由席位体系取代）
+
 ## 2026-10-15 — paper-review v1.1.0 / lit-research v1.0.1
 
 按 `docs/handoff-20261013-paper-review-hardening.md` 规格实施加固

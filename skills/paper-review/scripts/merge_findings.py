@@ -1,8 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""merge_findings.py — paper-review 多来源审查发现合并脚本
+"""merge_findings.py — paper-review 审查发现合并脚本（v2.0 双模式）
 
-功能：
+═══ v2 模式（--run-dir，v2.0 起默认）═══
+  输入为两份权威结构化清单（不再是三来源自由文本）：
+    revision_roadmap.md  → 阶段1 面板 Revision Roadmap（内容发现，稳定 ID R-#）
+    deai_confirmed.md    → 阶段2 确认AI问题清单（语言发现，稳定 ID D-#）
+  仅对重叠打标项做交叉引用（S-#），不做跨源模糊去重；
+  config.json 撤回记录中的 ID 不得复活（withdrawn_skipped）。
+
+  用法：
+    python merge_findings.py --run-dir DIR [--roadmap FILE] [--deai FILE] [--output FILE]
+
+  输出（stdout，JSON）：
+    {"success": true, "mode": "v2", "p0": N, "p1": N, "p2": N, "total": N,
+     "content_items": N, "deai_items": N, "cross_refs": N,
+     "withdrawn_skipped": [...], "decision": "...", "quality_score": "38/50",
+     "output": "...", "sources_missing": [...]}
+
+═══ v1 兼容模式（--review-dir，保留一个版本后移除）═══
+  功能：
   1. 读取 review_dir 下三个来源文件（存在哪个读哪个，缺失跳过并提示）：
        deai_log.md           → 来源标签「去AI审查」
        discussion_minutes.md → 来源标签「多智能体研讨」
@@ -20,15 +37,14 @@
        P2 建议修改：措辞润色、语句打磨
   5. 输出合并清单 merged_findings.md + stdout JSON
 
-用法：
-  python merge_findings.py --review-dir DIR [--output FILE]
-  （--output 缺省为 {review_dir}/merged_findings.md）
+  用法：
+    python merge_findings.py --review-dir DIR [--output FILE]
 
-输出（stdout，JSON）：
-  {"p0": N, "p1": N, "p2": N, "total": N, "output": "...",
-   "sources_parsed": [...], "sources_missing": [...], "duplicates_removed": N}
+  输出（stdout，JSON）：
+    {"mode": "v1", "p0": N, "p1": N, "p2": N, "total": N, "output": "...",
+     "sources_parsed": [...], "sources_missing": [...], "duplicates_removed": N}
 
-退出码：0=成功（即使发现数为0）；1=输出文件写入失败；2=参数错误。
+退出码：0=成功（即使发现数为0）；1=输入/输出文件读写失败；2=参数错误。
 """
 import argparse
 import io
@@ -371,16 +387,30 @@ def write_output(path, findings, dups, missing):
 def main():
     parser = argparse.ArgumentParser(
         prog="merge_findings.py",
-        description="合并 deai_log.md / discussion_minutes.md / peer_reports.md 中的审查发现，"
-                    "去重并按 P0/P1/P2 分级，输出 merged_findings.md 与 JSON。",
+        description="paper-review 发现合并（v2 双模式）：--run-dir 走双权威清单"
+                    "（revision_roadmap.md + deai_confirmed.md，稳定ID/交叉引用/撤回不复活）；"
+                    "--review-dir 走 v1 三来源兼容模式（保留一个版本）。输出 JSON。",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--review-dir", metavar="DIR", default=".review",
-                        help="审查输出目录（读取三个来源文件）")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--run-dir", metavar="DIR",
+                       help="v2 模式：本轮运行产物目录（.review/r<N>/）")
+    group.add_argument("--review-dir", metavar="DIR",
+                       help="v1 兼容模式：审查输出目录（读取三个来源文件）")
+    parser.add_argument("--roadmap", metavar="FILE", default=None,
+                        help="v2：Revision Roadmap 路径（默认 {run_dir}/revision_roadmap.md）")
+    parser.add_argument("--deai", metavar="FILE", default=None,
+                        help="v2：确认AI问题清单路径（默认 {run_dir}/deai_confirmed.md）")
     parser.add_argument("--output", metavar="FILE", default=None,
-                        help="合并清单输出路径（默认 {review_dir}/merged_findings.md）")
+                        help="合并清单输出路径（默认 {run_dir|review_dir}/merged_findings.md）")
     args = parser.parse_args()
 
+    if args.run_dir:
+        sys.exit(run_v2(args))
+    sys.exit(run_v1(args))
+
+
+def run_v1(args):
     output = args.output or os.path.join(args.review_dir, "merged_findings.md")
 
     all_findings, parsed, missing = [], [], []
@@ -399,9 +429,10 @@ def main():
         counts, total = write_output(output, deduped, dups, missing)
     except OSError as e:
         print("错误：写入输出文件失败: %s" % e, file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     result = {
+        "mode": "v1",
         "p0": counts["P0"],
         "p1": counts["P1"],
         "p2": counts["P2"],
@@ -412,7 +443,335 @@ def main():
         "duplicates_removed": dups,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    sys.exit(0)
+    return 0
+
+
+# ═══════════════════════ v2 模式：双权威清单 ═══════════════════════
+#
+# 输入格式约定（SKILL.md 阶段1d / 阶段2c 产物，列名固定）：
+#   revision_roadmap.md：## P0|P1|P2 小节，表格列
+#     | ID | 位置 | 问题 | 建议 | 来源席 | 工作量 | 验收标准 |
+#     头部 ## 决议 行含 Decision（Accept/Minor/Major/Reject）
+#   deai_confirmed.md：单表，列
+#     | ID | 位置 | 问题 | 建议 | 支持技能 | 严重度 | 重叠标记 |
+#     重叠标记=R-# 时该条不重复计入，转入交叉引用表（S-#）
+#     「质量评分: N/50」行被提取进 JSON
+
+V2_SEV_HEAD_RE = re.compile(r"^#{2,3}\s*P([012])\b")
+V2_DECISION_RE = re.compile(
+    r"(Accept|Minor Revision|Major Revision|Reject|Minor|Major)", re.IGNORECASE)
+V2_QUALITY_RE = re.compile(r"质量评分\s*[:：]\s*(\d+\s*/\s*50)")
+V2_ID_RE = re.compile(r"\b([RDS])-(\d+)\b")
+
+
+def _read_md(path):
+    if not os.path.isfile(path):
+        return None
+    with open(path, "r", encoding="utf-8-sig") as f:
+        return f.read().splitlines()
+
+
+def _v2_table_rows(lines, start=0):
+    """从 start 起解析第一个 markdown 表格，返回 (dict行列表, 下一行号)；列按表头名映射"""
+    i = start
+    n = len(lines)
+    while i < n and not lines[i].strip().startswith("|"):
+        i += 1
+    if i >= n:
+        return [], i
+    header = [c.strip() for c in lines[i].strip().strip("|").split("|")]
+    i += 1
+    if i < n and is_sep_row([c.strip() for c in lines[i].strip().strip("|").split("|")]):
+        i += 1
+    rows = []
+    while i < n and lines[i].strip().startswith("|"):
+        cells = [c.strip() for c in lines[i].strip().strip("|").split("|")]
+        if not is_sep_row(cells):
+            rows.append({h: (cells[k] if k < len(cells) else "")
+                         for k, h in enumerate(header)})
+        i += 1
+    return rows, i
+
+
+def _v2_pick(row, *names):
+    for nm in names:
+        for key, val in row.items():
+            if nm in key:
+                return val.strip()
+    return ""
+
+
+def _next_id(prefix, used):
+    k = 1
+    while "%s-%d" % (prefix, k) in used:
+        k += 1
+    nid = "%s-%d" % (prefix, k)
+    used.add(nid)
+    return nid
+
+
+def parse_roadmap(path):
+    """解析 revision_roadmap.md → (items, decision)。
+    items: [{id, sev, loc, desc, sugg, seats, effort, accept}]"""
+    lines = _read_md(path)
+    if lines is None:
+        return None, None
+    decision = None
+    items, used = [], set()
+    cur_sev = None
+    auto_no = 0
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#") and "决议" in line:
+            for j in range(i + 1, min(i + 4, len(lines))):
+                m = V2_DECISION_RE.search(lines[j])
+                if m:
+                    decision = m.group(1)
+                    break
+            continue
+        m = V2_SEV_HEAD_RE.match(line.strip())
+        if m:
+            cur_sev = "P" + m.group(1)
+            rows, _ = _v2_table_rows(lines, i + 1)
+            for row in rows:
+                desc = _v2_pick(row, "问题")
+                if not desc:
+                    continue
+                rid = _v2_pick(row, "ID")
+                m2 = V2_ID_RE.search(rid)
+                rid = m2.group(0) if m2 else None
+                if rid is None:
+                    auto_no += 1
+                    rid = "R-%d" % (1000 + auto_no)   # 占位，稍后重排
+                used.add(rid)
+                items.append({
+                    "id": rid, "sev": cur_sev or "P2",
+                    "loc": _v2_pick(row, "位置"), "desc": desc,
+                    "sugg": _v2_pick(row, "建议"),
+                    "seats": _v2_pick(row, "来源席", "来源"),
+                    "effort": _v2_pick(row, "工作量"),
+                    "accept": _v2_pick(row, "验收"),
+                })
+    # 占位 ID（R-1001+）重排为不冲突的连续 R-#
+    real_ids = set(it["id"] for it in items if not _is_placeholder(it["id"]))
+    k = 0
+    for it in items:
+        if _is_placeholder(it["id"]):
+            while True:
+                k += 1
+                if "R-%d" % k not in real_ids:
+                    it["id"] = "R-%d" % k
+                    real_ids.add(it["id"])
+                    break
+    return items, decision
+
+
+def _is_placeholder(rid):
+    m = re.fullmatch(r"R-(\d+)", rid)
+    return bool(m) and int(m.group(1)) > 1000
+
+
+def parse_deai_confirmed(path):
+    """解析 deai_confirmed.md → (items, quality_score)。
+    items: [{id, sev, loc, desc, sugg, skills, overlap}]"""
+    lines = _read_md(path)
+    if lines is None:
+        return None, None
+    quality = None
+    for line in lines:
+        m = V2_QUALITY_RE.search(line)
+        if m:
+            quality = re.sub(r"\s+", "", m.group(1))
+            break
+    rows, _ = _v2_table_rows(lines)
+    items, used = [], set()
+    auto_no = 0
+    for row in rows:
+        desc = _v2_pick(row, "问题")
+        if not desc:
+            continue
+        did = _v2_pick(row, "ID")
+        m2 = V2_ID_RE.search(did)
+        did = m2.group(0) if m2 and m2.group(1) == "D" else None
+        if did is None:
+            auto_no += 1
+            while "D-%d" % auto_no in used:
+                auto_no += 1
+            did = "D-%d" % auto_no
+        used.add(did)
+        sev_m = re.search(r"P[012]", _v2_pick(row, "严重度").upper())
+        overlap = _v2_pick(row, "重叠")
+        ov_m = V2_ID_RE.search(overlap)
+        items.append({
+            "id": did, "sev": sev_m.group(0) if sev_m else "P2",
+            "loc": _v2_pick(row, "位置"), "desc": desc,
+            "sugg": _v2_pick(row, "建议"),
+            "skills": _v2_pick(row, "支持技能", "技能"),
+            "overlap": ov_m.group(0) if ov_m and ov_m.group(1) == "R" else None,
+        })
+    return items, quality
+
+
+def load_withdrawn(run_dir):
+    """从 config.json（run_dir 或其父目录）读取撤回记录 ID 集合"""
+    for cand in (os.path.join(run_dir, "config.json"),
+                 os.path.join(os.path.dirname(os.path.abspath(run_dir)), "config.json")):
+        if os.path.isfile(cand):
+            try:
+                with open(cand, "r", encoding="utf-8-sig") as f:
+                    cfg = json.load(f)
+                return set(w.get("id") for w in cfg.get("withdrawals", [])
+                           if w.get("id")), cfg
+            except (OSError, ValueError):
+                pass
+    return set(), None
+
+
+def write_output_v2(path, content_items, deai_items, cross_refs, withdrawn,
+                    decision, quality, missing):
+    counts = {"P0": 0, "P1": 0, "P2": 0}
+    for f in content_items + deai_items:
+        counts[f["sev"]] = counts.get(f["sev"], 0) + 1
+    total = len(content_items) + len(deai_items)
+    out = ["# 合并审查发现（v2 双权威清单）", ""]
+    if decision:
+        out.append("决议：**%s**" % decision)
+        out.append("")
+    out.append("## 内容发现（阶段1 Revision Roadmap）")
+    out.append("")
+    for sev, title in SEV_TITLES:
+        items = [f for f in content_items if f["sev"] == sev]
+        out.append("### %s" % title)
+        out.append("")
+        if items:
+            out.append("| ID | 位置 | 问题 | 建议 | 来源席 | 工作量 | 验收标准 |")
+            out.append("|----|------|------|------|--------|--------|----------|")
+            for f in items:
+                out.append("| %s | %s | %s | %s | %s | %s | %s |" % (
+                    f["id"], md_escape(f["loc"] or "—"), md_escape(f["desc"]),
+                    md_escape(f["sugg"] or "—"), md_escape(f["seats"] or "—"),
+                    md_escape(f["effort"] or "—"), md_escape(f["accept"] or "—")))
+        else:
+            out.append("（无）")
+        out.append("")
+    out.append("## 语言发现（阶段2 确认AI问题清单，未重叠项）")
+    out.append("")
+    if deai_items:
+        out.append("| ID | 严重度 | 位置 | 问题 | 建议 | 支持技能 |")
+        out.append("|----|--------|------|------|------|----------|")
+        for f in deai_items:
+            out.append("| %s | %s | %s | %s | %s | %s |" % (
+                f["id"], f["sev"], md_escape(f["loc"] or "—"), md_escape(f["desc"]),
+                md_escape(f["sugg"] or "—"), md_escape(f["skills"] or "—")))
+    else:
+        out.append("（无）")
+    out.append("")
+    out.append("## 重叠交叉引用（去AI与阶段1同源，以阶段1为准）")
+    out.append("")
+    if cross_refs:
+        out.append("| S-ID | 去AI项 | 内容项 | 说明 |")
+        out.append("|------|--------|--------|------|")
+        for c in cross_refs:
+            out.append("| %s | %s | %s | %s |" % (
+                c["sid"], c["deai_id"], c["content_id"], md_escape(c["note"])))
+    else:
+        out.append("（无）")
+    out.append("")
+    if withdrawn:
+        out.append("## 已撤回项（不得复活）")
+        out.append("")
+        for w in withdrawn:
+            out.append("- %s（撤回记录见 config.json）" % w)
+        out.append("")
+    if quality:
+        out.append("去AI质量评分：%s" % quality)
+        out.append("")
+    out.append("## 统计")
+    out.append("")
+    out.append("P0: %d项 | P1: %d项 | P2: %d项 | 总计: %d项"
+               % (counts["P0"], counts["P1"], counts["P2"], total))
+    out.append("")
+    out.append("（内容 %d 项 + 语言 %d 项；交叉引用 %d 项不重复计入；撤回跳过 %d 项）"
+               % (len(content_items), len(deai_items), len(cross_refs), len(withdrawn)))
+    if missing:
+        out.append("")
+        out.append("（缺失输入清单，未纳入合并：%s）" % ", ".join(missing))
+    out.append("")
+    d = os.path.dirname(os.path.abspath(path))
+    os.makedirs(d, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(out))
+    return counts, total
+
+
+def run_v2(args):
+    roadmap_path = args.roadmap or os.path.join(args.run_dir, "revision_roadmap.md")
+    deai_path = args.deai or os.path.join(args.run_dir, "deai_confirmed.md")
+    output = args.output or os.path.join(args.run_dir, "merged_findings.md")
+
+    missing = []
+    content_items, decision = parse_roadmap(roadmap_path)
+    if content_items is None:
+        missing.append(os.path.basename(roadmap_path))
+        print("警告：Revision Roadmap 不存在，跳过: %s" % roadmap_path, file=sys.stderr)
+        content_items, decision = [], None
+
+    deai_items, quality = parse_deai_confirmed(deai_path)
+    if deai_items is None:
+        missing.append(os.path.basename(deai_path))
+        print("警告：确认AI问题清单不存在，跳过: %s" % deai_path, file=sys.stderr)
+        deai_items, quality = [], None
+    if len(missing) == 2:
+        print("错误：两份权威清单均缺失，无可合并输入", file=sys.stderr)
+        return 1
+
+    withdrawn_ids, _cfg = load_withdrawn(args.run_dir)
+    withdrawn = []
+
+    def _drop_withdrawn(f):
+        if f["id"] in withdrawn_ids:
+            withdrawn.append(f["id"])
+            return True
+        return False
+
+    content_items = [f for f in content_items if not _drop_withdrawn(f)]
+    deai_items = [f for f in deai_items if not _drop_withdrawn(f)]
+
+    # 重叠打标 → 交叉引用（S-#），不重复计入
+    cross_refs, kept_deai = [], []
+    s_no = 0
+    for f in deai_items:
+        if f["overlap"]:
+            s_no += 1
+            cross_refs.append({
+                "sid": "S-%d" % s_no, "deai_id": f["id"], "content_id": f["overlap"],
+                "note": "内容问题，阶段1 已辖（以 %s 为准）" % f["overlap"],
+            })
+        else:
+            kept_deai.append(f)
+
+    try:
+        counts, total = write_output_v2(output, content_items, kept_deai, cross_refs,
+                                        withdrawn, decision, quality, missing)
+    except OSError as e:
+        print("错误：写入输出文件失败: %s" % e, file=sys.stderr)
+        return 1
+
+    result = {
+        "success": True,
+        "mode": "v2",
+        "p0": counts["P0"], "p1": counts["P1"], "p2": counts["P2"],
+        "total": total,
+        "content_items": len(content_items),
+        "deai_items": len(kept_deai),
+        "cross_refs": len(cross_refs),
+        "withdrawn_skipped": withdrawn,
+        "decision": decision,
+        "quality_score": quality,
+        "sources_missing": missing,
+        "output": os.path.abspath(output).replace("\\", "/"),
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ Claude Code 自定义技能开发与发布工作空间。
 | 技能 | 版本 | 说明 |
 |------|------|------|
 | **lit-research** | 1.0.1 | 文献调研：deep-research 检索 → 查新 → 下载提取 → 建卡 → 去AI化 → 验证入库 |
-| **paper-review** | 1.1.0 | 论文审查：去AI审查 → 多智能体研讨 → 同行评审 → 修改执行 → 收敛循环（支持源位置三轨定位） |
+| **paper-review** | 2.0.0 | 论文审查：七席合并面板（含数值审计专席）→ 去AI多智能体研讨 → 合并报告 → 修改执行 → 收敛循环；支持稿件类型准则绑定、多版本复审、专家意见对账、三轨定位、RESUME 续跑 |
 
 ## 安装
 
@@ -44,21 +44,32 @@ python install.py list                 # 查看状态
 ### paper-review（论文审查）
 
 ```
-/paper-review 论文.md --section 2.1
-/paper-review 论文.md --quick          # 快速模式（单实例）
-/paper-review 论文.md --focus de-ai    # 仅去AI审查
-/paper-review 论文.md --no-fix         # 仅报告不修改
-/paper-review 论文.md --source tex目录 # 源位置三轨定位（tex/docx/pdf）
+/paper-review 论文.md --doctype full-paper        # 完整论文（类型必声明，缺失会询问）
+/paper-review 论文.md --quick                     # 快速模式（S1+S6 两席）
+/paper-review 论文.md --focus de-ai               # 仅去AI审查（panel=仅面板）
+/paper-review 论文.md --no-fix                    # 仅报告不修改
+/paper-review 论文.md --source tex目录            # 源位置三轨定位（tex/docx/pdf）
+/paper-review draft-v2.md --re-review --response response-v2.md   # 核验式复审
+/paper-review 论文.md --expert-comments 专家意见.md               # 专家意见对账
 ```
 
-流程：去AI审查(4技能) → 多智能体研讨(5角色) → 同行评审(ars-reviewer) → 修改执行 → 收敛循环
+流程：Step 0（doctype 绑定/转换审计/引文 lint/成本预估）→ 七席面板（独立审查→讨论撤回→编辑综合）→ 去AI研讨（四代理审计→交叉质询→终裁）→ 合并报告 → 修改执行 → 收敛循环
 
 ## 测试
 
 ```bash
-python tests/test_paper_review/test_anchor_map.py       # 三轨定位（11 用例）
-python tests/test_paper_review/test_merge_findings.py   # 合并+白名单防噪声（7 用例）
-python tests/test_lit_research/test_extract_pdf.py      # PDF 页标记（需 PyMuPDF）
+python tests/test_paper_review/test_setup_env_v2.py       # doctype/轮次/护栏/预估（15 用例）
+python tests/test_paper_review/test_merge_findings_v2.py  # 双权威清单合并（8 用例）
+python tests/test_paper_review/test_merge_findings.py     # v1 兼容回归（7 用例）
+python tests/test_paper_review/test_anchor_map.py         # 三轨定位（11 用例）
+python tests/test_paper_review/test_resume.py             # RESUME 续跑（20 用例）
+python tests/test_paper_review/test_diff_scope.py         # 版本 diff 分域（13 用例）
+python tests/test_paper_review/test_conversion_audit.py   # 转换审计（15 用例）
+python tests/test_paper_review/test_numeric_checks.py     # S7 数值检查库
+python tests/test_paper_review/test_bib_lint.py           # 引文 lint
+python tests/test_paper_review/test_expert_reconcile.py   # 专家对账隔离区（22 用例）
+python tests/test_paper_review/test_migrate_rounds.py     # 存量迁移（9 用例）
+python tests/test_lit_research/test_extract_pdf.py        # PDF 页标记（需 PyMuPDF）
 ```
 
 ## 依赖
@@ -78,8 +89,9 @@ skills/                  技能目录
     references/          可替换模板（4个）
   paper-review/          论文审查技能
     SKILL.md             流程编排
-    scripts/             Python 脚本（6个，含 anchor_map.py 三轨定位）
-    references/          可替换模板（6个，含 anchor-locator.md / format-notes.md）
+    scripts/             Python 脚本（12个 + numeric_checks/ 检查库）
+    references/          可替换模板（9个：七席章程/研讨协议/doctype准则/复审协议等）
+    templates/           报告与谱系模板（final-report.md / chain.md）
 shared/scripts/          共享模块
 install.py               安装工具
 tests/                   测试用例
@@ -92,7 +104,8 @@ CHANGELOG.md             变更日志
 每个技能的 `references/` 目录包含可替换模板：
 - **card-template.md** — 卡片格式模板，按项目需求定制
 - **quality-rubric.md** — 评分标准，可调整维度和权重
-- **agent-roles.md** — 讨论角色，可增减或替换
+- **panel-roles.md** — 七席面板章程，可增减席位或调整检查清单
+- **doctype-criteria.md** — 稿件类型准则（机器版在 setup_env.py，两处需同步）
 
 替换这些文件即可适配不同项目，无需修改核心流程。
 

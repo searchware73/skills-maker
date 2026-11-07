@@ -2,7 +2,7 @@
 
 > 适用场景：在另一台笔记本（或重装系统后的机器）上同步 skills-maker 工作空间，
 > 并安装/更新 `lit-research` 与 `paper-review` 两个技能。
-> 最后核对：2026-10-15（对应 paper-review v1.1.0 / lit-research v1.0.1，标签 `v1.1.0`）。
+> 最后核对：2026-11-08（对应 paper-review v2.0.0 / lit-research v1.0.1，标签 `v2.0.0`）。
 
 ---
 
@@ -33,7 +33,7 @@ cd skills-maker
 cd skills-maker
 git checkout main
 git pull origin main        # 拉取最新提交
-git describe --tags         # 可选：确认版本标签，如 v1.1.0
+git describe --tags         # 可选：确认版本标签，如 v2.0.0
 ```
 
 ## 3. 安装两个技能
@@ -65,9 +65,9 @@ python install.py link paper-review
 | `stop-slop` | 两者去AI化阶段 | 必需 |
 | `academic-humanizer` | 两者去AI化阶段 | 必需 |
 | `humanize-writing` | 两者去AI化阶段 | 必需 |
-| `humanizer-zh` | paper-review 阶段1 | 必需 |
+| `humanizer-zh` | paper-review 阶段2 | 必需 |
 | `deep-research` | lit-research Step 2 | 必需 |
-| ARS 插件（含 `ars-reviewer`） | paper-review 阶段3/5 同行评审 | 必需 |
+| ARS 插件（含 `ars-reviewer`） | paper-review 阶段5 评审复查 | 必需 |
 | `word-revision` | docx 回源交付（Track Changes） | 可选 |
 
 最简办法：从旧机器整体拷贝 `~/.claude/skills/` 下对应目录 + ARS 插件配置。
@@ -79,9 +79,18 @@ python install.py link paper-review
 3. 跑仓库自带测试确认脚本环境正常（应全部 OK）：
 
 ```bash
-python tests/test_paper_review/test_anchor_map.py        # 三轨定位，11 用例
-python tests/test_paper_review/test_merge_findings.py    # 合并+白名单，7 用例
-python tests/test_lit_research/test_extract_pdf.py       # PDF 页标记，需 PyMuPDF
+python tests/test_paper_review/test_setup_env_v2.py       # doctype/轮次/护栏/预估，15 用例
+python tests/test_paper_review/test_merge_findings_v2.py  # 双权威清单合并，8 用例
+python tests/test_paper_review/test_merge_findings.py     # v1 兼容回归，7 用例
+python tests/test_paper_review/test_anchor_map.py         # 三轨定位，11 用例
+python tests/test_paper_review/test_resume.py             # RESUME 续跑，20 用例
+python tests/test_paper_review/test_diff_scope.py         # 版本 diff 分域，13 用例
+python tests/test_paper_review/test_conversion_audit.py   # 转换审计，15 用例
+python tests/test_paper_review/test_numeric_checks.py     # S7 数值检查库
+python tests/test_paper_review/test_bib_lint.py           # 引文 lint
+python tests/test_paper_review/test_expert_reconcile.py   # 专家对账隔离区，22 用例
+python tests/test_paper_review/test_migrate_rounds.py     # 存量迁移，9 用例
+python tests/test_lit_research/test_extract_pdf.py        # PDF 页标记，需 PyMuPDF
 ```
 
 4. 抽查安装副本与仓库一致：
@@ -108,5 +117,5 @@ diff -rq skills/lit-research ~/.claude/skills/lit-research
 | 脚本输出中文乱码 | Windows GBK 环境；脚本已内置 UTF-8 reconfigure，若仍乱码检查终端编码 |
 | `extract_pdf.py` 报缺少依赖 | `pip install pymupdf requests` |
 | `link` 模式报权限错误 | Windows 开启开发者模式或用管理员终端；或改用 `install` |
-| paper-review 阶段3 失败 | ARS 插件未装；技能会提示降级（自行按 checklist 评审），最终报告注明 |
+| paper-review 阶段5 复查失败 | ARS 插件未装；技能会提示降级（自行按 checklist 评审），最终报告注明 |
 | pull 后技能行为没变 | 忘了重新 `install`（复制模式下安装副本不会自动更新） |

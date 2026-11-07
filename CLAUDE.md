@@ -23,6 +23,9 @@ install.py           ← 安装/卸载/链接工具
 - `scripts/` — Python 脚本（执行机械性步骤）
 - `references/` — 可替换模板文件（按项目定制）
 
+可选目录：
+- `templates/` — 产物骨架模板（如 paper-review 的最终报告/版本谱系模板）
+
 ## SKILL.md 编写规范
 
 ### 前置元数据（YAML）
