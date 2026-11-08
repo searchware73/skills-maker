@@ -351,3 +351,19 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
 4. **一篇一会话纪律 + 阶段记账**：正式模式单篇单会话；RESUME.md/config 记各阶段墙钟与 token（亦为 10.6 预估的数据源）
 5. **跨篇 INDEX**：Step 6 向 papers/INDEX.md 追加一行状态（稿件名/doctype/当前轮次/决议/日期/报告路径），
    新会话一眼全貌（现状须 ls + 逐篇读 RESUME）；属工作空间级约定，随 v2.0 落地时与 CLAUDE.md 更新一并讨论
+6. **prev_findings 脚本化抽取**（r5 回归发现①）：复审基线 prev_findings.md 不得手工摘要回填——r5 中压缩表述
+   （「全文统一」）与 r4 原文口径（「5 处必改+2 处请作者裁决」）偏差，差点导致 PR-3 误判 partial（被 1c 三轮仲裁救回）。
+   改为脚本从 r(N-1) 报告原表逐行抽取（保留建议列全文），主持人/席位引用不得转述缩水
+7. **覆盖护栏 v1 跟踪修正**（r5 回归发现②）：source_root="." 时根目录 v1 源文件未被登记为已跟踪，
+   导致 r5 对根目录 paper.docx（v1 原件，mtime 早于任何新拷贝）误报 needs_source_confirmation。
+   setup_env.py 的 untracked 判定应排除「v1 source_root 内、mtime 早于 r1 开跑时间或哈希匹配 r1 转换输入」的文件
+8. **版本草稿与报告归档目录约定**（用户 2026-11-08 提出）：
+   - 草稿：draft-vN.md（N≥2）改放各自源目录 `sources/vN/`（与源同目录便于对照查找）；draft.md（v1）仍留根目录；
+     config.json versions 映射、diff_scope、命令示例、CLAUDE.md 目录树同步改
+   - 报告：单轮稿件维持 `output/<name>-审阅报告.md` 平铺（多数case零仪式）；**出现复审（r≥2）时**建
+     `output/<name>/` 子目录，各轮报告归集为 `<name>-r1-审阅报告.md`、`<name>-rN-re-review-report.md`…，
+     chain.md 同步记录各轮报告路径（移动后旧路径留转发注记）；备选方案「所有稿件一律 per-paper 子目录」记录在案，
+     推荐沿用§九非对称原则（不为多数单轮稿件增加复杂性）
+9. **审查报告格式统一化**（用户 2026-11-08 提出）：templates/final-report.md 暂冻结；再执行 3–5 次审阅后
+   汇总模板摩擦点（可选节空载率、三轨列在无 anchor 时的呈现、复审/首审差异节、去AI节与合并节的信息重复度），
+   修订为定稿格式并回填本交接文档；期间各轮报告允许在模板外加「轮次特注」但不得改模板节名与列名
