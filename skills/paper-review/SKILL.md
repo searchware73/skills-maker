@@ -1,6 +1,6 @@
 ---
 name: paper-review
-version: 2.0.0
+version: 2.0.1
 description: |
   论文审查技能 v2.0：合并同行评审面板（七席含数值审计专席）→ 去AI审查
   （多智能体研讨）→ 合并报告 → 修改执行 → 收敛循环。支持稿件类型准则绑定
@@ -165,7 +165,7 @@ PyMuPDF 抽文本 → find_tables 抽表 → 渲染页为 PNG 后 Read 图像。
 
 ### 阶段1 — 合并同行评审面板（七席）
 
-1a 领域分析与席位配置（沿用 ars-reviewer field_analyst 模式）：
+1a 领域分析与席位配置（沿用 academic-paper-reviewer field_analyst 模式）：
 执行：`Read("{SKILL_DIR}/references/panel-roles.md")` 与
 `Read("{SKILL_DIR}/references/discussion-protocol.md")`；
 由当前实例（或单代理）分析稿件领域/类型/规模，用 **Write** 产出 `{run_dir}seat_config.md`
@@ -366,7 +366,7 @@ await agent([
 - 去AI评分 = `max(1, min(10, 10 − 残留词数×0.5 − 结构问题数×0.5))`（convergence-criteria.md）
 
 5.2 评审复查（READ-ONLY，单代理替代全面板）：
-执行：`Skill(skill="academic-research-skills:ars-reviewer", args="复审 {file_path}（第{round}轮，对照 {run_dir}revision_roadmap.md 逐条检查改进情况）")`
+执行：`Skill(skill="academic-research-skills:academic-paper-reviewer", args="re-review 模式：复审 {file_path}（第{round}轮，对照 {run_dir}revision_roadmap.md 与 decision_letter.md 逐条核验改进情况；READ-ONLY，不得修改稿件）")`
 - 报告 Write 到 `{run_dir}peer_recheck_r{round}.md`；Decision → 映射评分（同阶段1）
 
 5.3 统计本轮 P0/P1/P2（5.1 残留 + 5.2 结构化发现）
@@ -446,8 +446,8 @@ await agent([
 - 脚本失败（退出码≠0）：读 stderr 与 problems，修正后重试 **≤3次**；仍失败暂停请用户介入
 - **子代理 API 错误 ≠ 阶段失败**（纪律9）：重试该代理 ≤3次，不得重跑整阶段；
   恢复后凭 RESUME.md + 已落盘产物续跑
-- Skill 调用失败：报告用户；经同意可降级（ars-reviewer 不可用→按 review-checklist.md
-  自行评审），**降级必须在最终报告注明**
+- Skill 调用失败：报告用户；经同意可降级（academic-paper-reviewer 不可用→按
+  review-checklist.md 自行评审），**降级必须在最终报告注明**
 - Workflow 不可用或失败：阶段1 降级 --quick 单实例流程、阶段2 降级主上下文按协议
   单实例执行，并告知用户
 - 三轨定位反查失败/歧义：回退结构坐标（不算错误）；--source 缺失/init 失败：全程双轨

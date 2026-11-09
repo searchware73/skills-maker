@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 2026-11-09 — paper-review v2.0.1（阶段5 评审复查调用修正）
+
+- **修复**：阶段5.2 的
+  `Skill(skill="academic-research-skills:ars-reviewer")` 改为
+  `Skill(skill="academic-research-skills:academic-paper-reviewer", args="re-review 模式：…")`。
+  `ars-reviewer` 是 ARS 插件的斜杠命令（`commands/ars-reviewer.md`，且
+  `disable-model-invocation: true`），不是技能，原调用必然失败并静默降级；
+  改为直接调用技能并显式指定 `re-review` 模式（Revision verification checklist），
+  与「对照 revision_roadmap 逐条核验改进情况」的语义一致。
+- 同步更新：失败回退措辞（`SKILL.md`）、`references/convergence-criteria.md`、
+  `README.md`、`docs/SYNC-GUIDE.md`（ARS 插件依赖名）。
+- 新增静态回归测试 `tests/test_paper_review/test_skill_invocation.py`，
+  锁定阶段5 必须调用 `academic-paper-reviewer` 技能且不得把命令名当技能调用。
+- 依赖版本核对：stop-slop `8da1f03`、humanize-writing 2.0.0、
+  academic-humanizer 0.3.3、ARS 插件 3.24.2 均为上游最新；
+  humanizer-zh 本地落后上游 1 个提交（`f4518a8`，中文改写保义性修复），
+  由用户在 `~/.claude/skills/humanizer-zh` 执行 `git pull` 更新，不随本仓库发布。
+
 ## 2026-11-08 — paper-review v2.0.0（架构级重构）
 
 按 `docs/handoff-20261108-paper-review-v2.md` 规格实施

@@ -2,7 +2,7 @@
 
 > 适用场景：在另一台笔记本（或重装系统后的机器）上同步 skills-maker 工作空间，
 > 并安装/更新 `lit-research` 与 `paper-review` 两个技能。
-> 最后核对：2026-11-08（对应 paper-review v2.0.0 / lit-research v1.0.1，标签 `v2.0.0`）。
+> 最后核对：2026-11-09（对应 paper-review v2.0.1 / lit-research v1.0.1，标签 `v2.0.1`）。
 
 ---
 
@@ -33,7 +33,7 @@ cd skills-maker
 cd skills-maker
 git checkout main
 git pull origin main        # 拉取最新提交
-git describe --tags         # 可选：确认版本标签，如 v2.0.0
+git describe --tags         # 可选：确认版本标签，如 v2.0.1
 ```
 
 ## 3. 安装两个技能
@@ -67,7 +67,7 @@ python install.py link paper-review
 | `humanize-writing` | 两者去AI化阶段 | 必需 |
 | `humanizer-zh` | paper-review 阶段2 | 必需 |
 | `deep-research` | lit-research Step 2 | 必需 |
-| ARS 插件（含 `ars-reviewer`） | paper-review 阶段5 评审复查 | 必需 |
+| ARS 插件（含 `academic-paper-reviewer` 技能） | paper-review 阶段5 评审复查 | 必需 |
 | `word-revision` | docx 回源交付（Track Changes） | 可选 |
 
 最简办法：从旧机器整体拷贝 `~/.claude/skills/` 下对应目录 + ARS 插件配置。
@@ -90,6 +90,7 @@ python tests/test_paper_review/test_numeric_checks.py     # S7 数值检查库
 python tests/test_paper_review/test_bib_lint.py           # 引文 lint
 python tests/test_paper_review/test_expert_reconcile.py   # 专家对账隔离区，22 用例
 python tests/test_paper_review/test_migrate_rounds.py     # 存量迁移，9 用例
+python tests/test_paper_review/test_skill_invocation.py    # 阶段5 技能调用名，4 用例
 python tests/test_lit_research/test_extract_pdf.py        # PDF 页标记，需 PyMuPDF
 ```
 
@@ -117,5 +118,5 @@ diff -rq skills/lit-research ~/.claude/skills/lit-research
 | 脚本输出中文乱码 | Windows GBK 环境；脚本已内置 UTF-8 reconfigure，若仍乱码检查终端编码 |
 | `extract_pdf.py` 报缺少依赖 | `pip install pymupdf requests` |
 | `link` 模式报权限错误 | Windows 开启开发者模式或用管理员终端；或改用 `install` |
-| paper-review 阶段5 复查失败 | ARS 插件未装；技能会提示降级（自行按 checklist 评审），最终报告注明 |
+| paper-review 阶段5 复查失败 | ARS 插件未装或技能名不匹配；技能会提示降级（自行按 checklist 评审），最终报告注明 |
 | pull 后技能行为没变 | 忘了重新 `install`（复制模式下安装副本不会自动更新） |

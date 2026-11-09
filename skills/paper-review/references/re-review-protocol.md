@@ -40,7 +40,7 @@ Step 0 后执行：`Bash("python {SKILL_DIR}/scripts/diff_scope.py --old <v(N-1)
 | **新增章节/表格**（new_headings） | 视同变更区域全扫 |
 | **未变更区域** | 仅回归检查上轮发现是否被间接破坏，**不做全新扫查**（成本关键） |
 
-## 4. R&R 追溯矩阵（复用 ars-reviewer re-review Schema 11）
+## 4. R&R 追溯矩阵（复用 academic-paper-reviewer re-review 模式 Schema 11）
 
 上轮 P0/P1/P2 **逐条**核验，写入 `{run_dir}/rr_matrix.md`：
 

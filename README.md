@@ -7,7 +7,7 @@ Claude Code 自定义技能开发与发布工作空间。
 | 技能 | 版本 | 说明 |
 |------|------|------|
 | **lit-research** | 1.0.1 | 文献调研：deep-research 检索 → 查新 → 下载提取 → 建卡 → 去AI化 → 验证入库 |
-| **paper-review** | 2.0.0 | 论文审查：七席合并面板（含数值审计专席）→ 去AI多智能体研讨 → 合并报告 → 修改执行 → 收敛循环；支持稿件类型准则绑定、多版本复审、专家意见对账、三轨定位、RESUME 续跑 |
+| **paper-review** | 2.0.1 | 论文审查：七席合并面板（含数值审计专席）→ 去AI多智能体研讨 → 合并报告 → 修改执行 → 收敛循环；支持稿件类型准则绑定、多版本复审、专家意见对账、三轨定位、RESUME 续跑 |
 
 ## 安装
 
@@ -69,6 +69,7 @@ python tests/test_paper_review/test_numeric_checks.py     # S7 数值检查库
 python tests/test_paper_review/test_bib_lint.py           # 引文 lint
 python tests/test_paper_review/test_expert_reconcile.py   # 专家对账隔离区（22 用例）
 python tests/test_paper_review/test_migrate_rounds.py     # 存量迁移（9 用例）
+python tests/test_paper_review/test_skill_invocation.py    # 阶段5 技能调用名（4 用例）
 python tests/test_lit_research/test_extract_pdf.py        # PDF 页标记（需 PyMuPDF）
 ```
 

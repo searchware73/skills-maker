@@ -35,7 +35,7 @@
 
   由阶段5复查（stop-slop 快速扫描）统计残留后算出，经 `--deai-score` 传入 convergence_check.py 判定。
 
-- **同行评审评分**：ars-reviewer 的 Editorial Decision 映射：
+- **同行评审评分**：academic-paper-reviewer 的 Editorial Decision 映射：
 
   | Editorial Decision | 评分 |
   |--------------------|------|
