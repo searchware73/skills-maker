@@ -1,10 +1,10 @@
 # paper-review v2.1 实施账本
 
-- 当前组：done（v2.1.0 已发版并安装；待补 push 后无遗留）
-- 更新时间：2026-11-11
-- 待补 push：本地 main 领先远端（G1–G4 全部提交 + 发版提交 28e18c8 + tag v2.1.0）；
-  push 三连（首发 + 重试 2 次）均 Connection reset / 443 不可达，恢复网络后
-  `git push --follow-tags origin main` 一次补齐
+- 当前组：done（v2.1.0 已发版、已安装、已推送远端）
+- 更新时间：2026-11-12
+- 待补 push：无（2026-11-12 网络恢复后补推成功：main c17568d..09730ae；
+  v2.1.0 为轻量标签不随 --follow-tags，已 `git push origin v2.1.0` 显式补推并
+  ls-remote 确认指向 28e18c8）
 
 ## 组进度
 
@@ -129,8 +129,11 @@
 - install：`python install.py install paper-review` 覆盖安装成功，list 显示已安装
 - 5.4 安装校验：`diff -rq skills/paper-review ~/.claude/skills/paper-review` 无输出；
   安装副本 SKILL.md `version: 2.1.0`；references/v21-migration-notes.md 已随装（12923 B）
-- 遗留给用户：重启 Claude Code 后在 paper-reviewer 工作空间执行 `/v21-adopt`；
-  网络恢复后 `git push --follow-tags origin main` 补推
+- 遗留给用户：重启 Claude Code 后在 paper-reviewer 工作空间执行 `/v21-adopt`
+- 补记（2026-11-12）：push 补齐——`git push --follow-tags origin main` 成功
+  （c17568d..09730ae，含 G1–G4 与发版全部提交）；发现 v2.1.0 轻量标签未被
+  --follow-tags 推送，`git push origin v2.1.0` 显式补推，ls-remote 验证在远端
+  指向 28e18c8。教训：本仓库打的是轻量标签，发版 push 后应 ls-remote 验证标签
 
 ## 备忘修订记录
 （条目号 / 修订内容 / 原因）
