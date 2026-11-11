@@ -13,8 +13,8 @@
 | G1 | 19,12,13,21,23,24 | done | f687cbd | 15 文件 212 用例全绿 | G1 验证命令通过：夹具 dry-run 输出 5 类待确认项（10 条）、26 moves、5 rewrites、零文件改动、无 .migrate-layout 残留 |
 | G2 | 15,14,20,16,17 | done | 410881d | 17 文件 264 用例全绿 | 条目17 二选一取 validate_report.py（校验器而非生成器）；条目20 仅 merged 单源输入 |
 | G3 | 11,18 | done | bbe578a | 18 文件 276 用例全绿 | 阶段1/2 各拆两段 Workflow，中间插 check_artifacts.py 门禁；防劫持条款进全部代理 prompt |
-| G4 | 10,22,1,2,3 | done | 593248b | 20 文件 317 用例全绿 + lit-research 1 用例绿 | 门禁 G1'（独立新建）/G2'（同轮追加）/G4（条目1/2/3 全部延后 v2.2）已裁决；条目 9 维持冻结 |
-| 发版 | Step 5 | done | 28e18c8 + tag v2.1.0 | 20 文件 317 + lit-research 1 = 318 全绿 | 门禁 G3 用户裁决执行三连；push 失败×3 记待补；install 校验：diff -rq 空 / 安装副本 version 2.1.0 / v21-migration-notes.md 已随装 |
+| G4 | 10,22,1,2,3 | done | 593248b | 19 文件 317 用例全绿 + lit-research 1 用例绿 | 门禁 G1'（独立新建）/G2'（同轮追加）/G4（条目1/2/3 全部延后 v2.2）已裁决；条目 9 维持冻结 |
+| 发版 | Step 5 | done | 28e18c8 + tag v2.1.0 | 19 文件 317 + lit-research 1 = 318 全绿 | 门禁 G3 用户裁决执行三连；push 失败×3 记待补；install 校验：diff -rq 空 / 安装副本 version 2.1.0 / v21-migration-notes.md 已随装 |
 
 ### G1 明细（2026-11-11）
 
@@ -108,7 +108,7 @@
   重复包装 sys.stdout/stderr 在解释器收尾时「lost sys.stderr」崩溃——移除 G4 新文件后
   同样复现；本仓库惯例为逐文件运行（317 用例逐文件全绿）
 - 测试合计：317 = G3 的 276 + extract_pdf 25 + conversion_audit 6 + expert_reconcile 10
-  （20 文件全绿）+ test_lit_research/test_extract_pdf.py 1 绿
+  （19 文件全绿）+ test_lit_research/test_extract_pdf.py 1 绿
 
 ### 发版明细（Step 5，2026-11-11）
 
