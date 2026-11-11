@@ -10,7 +10,7 @@
 |---|---|---|---|---|---|
 | G1 | 19,12,13,21,23,24 | done | f687cbd | 15 文件 212 用例全绿 | G1 验证命令通过：夹具 dry-run 输出 5 类待确认项（10 条）、26 moves、5 rewrites、零文件改动、无 .migrate-layout 残留 |
 | G2 | 15,14,20,16,17 | done | 410881d | 17 文件 264 用例全绿 | 条目17 二选一取 validate_report.py（校验器而非生成器）；条目20 仅 merged 单源输入 |
-| G3 | 11,18 | done | （待回填） | 18 文件 276 用例全绿 | 阶段1/2 各拆两段 Workflow，中间插 check_artifacts.py 门禁；防劫持条款进全部代理 prompt |
+| G3 | 11,18 | done | bbe578a | 18 文件 276 用例全绿 | 阶段1/2 各拆两段 Workflow，中间插 check_artifacts.py 门禁；防劫持条款进全部代理 prompt |
 | G4 | 10,22,1,2,3 | todo | | | |
 
 ### G1 明细（2026-11-11）
