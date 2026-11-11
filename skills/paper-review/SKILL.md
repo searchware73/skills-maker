@@ -1,11 +1,13 @@
 ---
 name: paper-review
-version: 2.0.1
+version: 2.1.0
 description: |
-  论文审查技能 v2.0：合并同行评审面板（七席含数值审计专席）→ 去AI审查
+  论文审查技能 v2.1：合并同行评审面板（七席含数值审计专席）→ 去AI审查
   （多智能体研讨）→ 合并报告 → 修改执行 → 收敛循环。支持稿件类型准则绑定
   （--doctype）、同目录多版本与核验式复审（--re-review）、专家意见对账
-  （--expert-comments）、源位置三轨定位（--source）、RESUME 跨终端续跑。
+  （--expert-comments，交付后可同轮追加对账）、源位置三轨定位（--source）、
+  PDF 全文提取（extract_pdf.py）、产物完整性门禁、RESUME 跨终端续跑；
+  目录为 v2.1 扁平结构（每篇论文一目录 + 工程根 INDEX.md）。
   触发条件：用户说"审查论文"、"review paper"、"论文研讨"、
   "同行评审"、"去AI审查"、"paper review"、"论文审查"、"复审"等。
 allowed-tools:
@@ -568,6 +570,7 @@ r{round} 报告**交付后**才收到外部专家意见时（Step 0 未声明 `-
 | convergence-criteria.md | 收敛条件、停滞处理、评分来源与映射 | 阶段5 |
 | anchor-locator.md | 三轨定位说明、反查机制与诚实边界 | Step 0/阶段3/Step 6 |
 | format-notes.md | pandoc/PDF 转换与提取注意事项（实测踩坑固化） | Step 0/Step 6 |
+| v21-migration-notes.md | v2.1 移交说明：落地目录树、与备忘偏差及原因、migrate_layout.py 全参数与 pending 处置、下游校验命令、新增/变更脚本一览 | 存量迁移 / 下游 /v21-adopt |
 
 ## 模板（templates/）
 

@@ -1,9 +1,11 @@
 # CHANGELOG
 
-## 2026-11-11 — paper-review v2.1.0（进行中 · G1–G4 已交付）
+## 2026-11-11 — paper-review v2.1.0（G1–G4 已交付）
 
-> v2.1 按 `docs/handoff-20261108-paper-review-v2.md` §十一 分 G1–G4 四组实施，
-> 本节随各组追加；SKILL.md frontmatter 版本号在 Step 5 发版时升为 2.1.0。
+> v2.1 按 `docs/handoff-20261108-paper-review-v2.md` §十一 分 G1–G4 四组实施。
+> SKILL.md frontmatter 版本号已升为 2.1.0；移交说明见
+> `skills/paper-review/references/v21-migration-notes.md`（随技能安装，
+> 下游 /v21-adopt 以其为权威口径，与备忘有出入处以其为准）。
 
 ### G1 目录扁平化 + CLI/文档对齐 + 一致性守卫（条目 19/12/13/21/23/24）
 
@@ -155,6 +157,15 @@
   内容/未决分歧节/stdout 分布/chain 追加与决议不变与幂等/INDEX 同步一次/五类失败
   路径/嵌套 run_dir chain 回退）；`tests/test_paper_review/` 20 文件 317 用例全绿 +
   `tests/test_lit_research/test_extract_pdf.py` 1 用例绿。
+
+### 发版（Step 5）
+
+- SKILL.md frontmatter `version: 2.1.0`，description 同步 v2.1 能力与扁平结构口径
+  （触发短语不变）。
+- 新增 `skills/paper-review/references/v21-migration-notes.md`（随技能安装到目标机）：
+  实际落地目录树、与备忘的偏差 10 条逐条含原因（下游 /v21-adopt 不读备忘）、
+  migrate_layout.py 全参数与 dry-run JSON 字段、9 类 pending 人工判定情形与推荐处置、
+  下游校验命令 7 条、新增/变更脚本与参数一览；SKILL.md 参考文件表收录。
 
 ## 2026-11-09 — paper-review v2.0.1（阶段5 评审复查调用修正）
 
