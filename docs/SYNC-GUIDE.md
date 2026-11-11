@@ -2,7 +2,7 @@
 
 > 适用场景：在另一台笔记本（或重装系统后的机器）上同步 skills-maker 工作空间，
 > 并安装/更新 `lit-research` 与 `paper-review` 两个技能。
-> 最后核对：2026-11-09（对应 paper-review v2.0.1 / lit-research v1.0.1，标签 `v2.0.1`）。
+> 最后核对：2026-11-12（对应 paper-review v2.1.0 / lit-research v1.0.1，标签 `v2.1.0`）。
 
 ---
 
@@ -33,7 +33,7 @@ cd skills-maker
 cd skills-maker
 git checkout main
 git pull origin main        # 拉取最新提交
-git describe --tags         # 可选：确认版本标签，如 v2.0.1
+git describe --tags         # 可选：确认版本标签，如 v2.1.0
 ```
 
 ## 3. 安装两个技能
@@ -79,19 +79,28 @@ python install.py link paper-review
 3. 跑仓库自带测试确认脚本环境正常（应全部 OK）：
 
 ```bash
-python tests/test_paper_review/test_setup_env_v2.py       # doctype/轮次/护栏/预估，15 用例
-python tests/test_paper_review/test_merge_findings_v2.py  # 双权威清单合并，8 用例
-python tests/test_paper_review/test_merge_findings.py     # v1 兼容回归，7 用例
-python tests/test_paper_review/test_anchor_map.py         # 三轨定位，11 用例
-python tests/test_paper_review/test_resume.py             # RESUME 续跑，20 用例
-python tests/test_paper_review/test_diff_scope.py         # 版本 diff 分域，13 用例
-python tests/test_paper_review/test_conversion_audit.py   # 转换审计，15 用例
-python tests/test_paper_review/test_numeric_checks.py     # S7 数值检查库
-python tests/test_paper_review/test_bib_lint.py           # 引文 lint
-python tests/test_paper_review/test_expert_reconcile.py   # 专家对账隔离区，22 用例
-python tests/test_paper_review/test_migrate_rounds.py     # 存量迁移，9 用例
-python tests/test_paper_review/test_skill_invocation.py    # 阶段5 技能调用名，4 用例
-python tests/test_lit_research/test_extract_pdf.py        # PDF 页标记，需 PyMuPDF
+# paper-review（19 文件 317 用例，逐文件运行；一次性 unittest discover 汇总跑会因
+# 测试模块重复包装 sys.stdout 在解释器收尾崩溃，属存量问题）
+python tests/test_paper_review/test_setup_env_v2.py           # doctype/轮次/护栏/预估/扁平结构（31）
+python tests/test_paper_review/test_merge_findings_v2.py      # 合并完整性/双口径（15）
+python tests/test_paper_review/test_merge_findings.py         # v1 兼容回归（7）
+python tests/test_paper_review/test_anchor_map.py             # 三轨定位/二进制 PDF/fill 完整性（21）
+python tests/test_paper_review/test_build_anchor_requests.py  # merged → 锚点请求（14）
+python tests/test_paper_review/test_resume.py                 # RESUME 续跑（20）
+python tests/test_paper_review/test_diff_scope.py             # 版本 diff 分域（13）
+python tests/test_paper_review/test_conversion_audit.py       # 转换审计 + 源侧计数回填（21）
+python tests/test_paper_review/test_numeric_checks.py         # S7 数值检查库（17）
+python tests/test_paper_review/test_bib_lint.py               # 引文 lint（10）
+python tests/test_paper_review/test_expert_reconcile.py       # 专家对账 + 交付后同轮追加（36）
+python tests/test_paper_review/test_validate_report.py        # 交付前机器校验（21）
+python tests/test_paper_review/test_check_artifacts.py        # 产物完整性门禁（12）
+python tests/test_paper_review/test_extract_pdf.py            # PDF 全文提取（25，需 PyMuPDF）
+python tests/test_paper_review/test_migrate_layout.py         # 存量迁移 dry-run/apply/幂等/回滚（24）
+python tests/test_paper_review/test_migrate_rounds.py         # 轮次迁移（11）
+python tests/test_paper_review/test_docs_cli_consistency.py   # 守卫：SKILL/CLI 一致性（10）
+python tests/test_paper_review/test_referenced_files_exist.py # 守卫：引用路径存在性（5）
+python tests/test_paper_review/test_skill_invocation.py       # 阶段5 技能调用名（4）
+python tests/test_lit_research/test_extract_pdf.py            # PDF 页标记（需 PyMuPDF）
 ```
 
 4. 抽查安装副本与仓库一致：
