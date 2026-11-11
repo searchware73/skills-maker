@@ -367,3 +367,181 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
 9. **审查报告格式统一化**（用户 2026-11-08 提出）：templates/final-report.md 暂冻结；再执行 3–5 次审阅后
    汇总模板摩擦点（可选节空载率、三轨列在无 anchor 时的呈现、复审/首审差异节、去AI节与合并节的信息重复度），
    修订为定稿格式并回填本交接文档；期间各轮报告允许在模板外加「轮次特注」但不得改模板节名与列名
+10. **PDF 提取脚本缺失补齐**（2026-11-10 用户提出，于小岚稿实测）：`references/format-notes.md` 第 4 条声明
+   「extract_pdf.py 已固化」，但 `scripts/` 目录中并无此文件，仅 anchor_map.py / conversion_audit.py 注释引用；
+   实际每次 PDF 审阅都要临时重写 PyMuPDF 脚本，且转换审计的 source_counts（tables/figures/equations）全为 null。
+   v2.1 应新增 `scripts/extract_pdf.py` 并纳入 SKILL Step 0.3/0.4：
+   - 逐页植入 `%% [PDF p.N]` 页标记（anchor_map 三轨定位的唯一切分依据）
+   - 无书签 PDF 按字号重建标题（章/节/小节），合并被 PDF 换行拆开的标题
+   - 过滤页眉页脚（如「XX大学博士学位论文+页码」）与目录点引线
+   - 图像按尺寸过滤导出（剔除表格线、字形碎片、背景条），生成图占位符并统计图/表题
+   - 参考文献按 `[N]` 切分为 refs.txt，供 bib_lint 直接消费
+   - 回填 conversion_audit 的源侧计数，表格线性化/公式文本化列入共同豁免
+   同时修正 format-notes.md 的脚本路径与调用示例，避免下次再临时造轮子。
+11. **Workflow 席位被用户消息劫持导致漏派**（2026-11-10 用户提出，连续两篇实测）：
+   现象：全昌寿稿 S4、于小岚稿 S3 在阶段1 七席并行时未产出报告，但 Workflow 统计为
+   `agents_done=9, agents_error=0`，无自动重试；1c 主持人只能标注缺口或按六席计算。
+   根因（已核对 workflow journal 与 agent transcript）：
+   - Workflow harness 会把**启动该 Workflow 时的最新用户消息**作为「triggering user request」
+     注入每个子代理的首条消息，并声明「this request wins」高于脚本计算的席位任务；
+   - 两次启动时最新消息分别是无关的「临时文件命令是否自动执行」与「PDF 转换为何要写 Python」，
+     被劫持的 S4/S3 转去回答该问题、未写席位报告；S4 的输出还因含 permissions/settings-json
+     被 harness 安全规则拦截；
+   - Workflow 只按「代理是否正常结束」计数，不校验约定产物是否存在；1b 后也没有七席完整性门禁。
+   修复建议：
+   - 阶段1 的 1b 之后、1c 之前增加**产物完整性门禁**：校验 `seat_reports/` 恰好 N 席且文件非空
+     （或每个 agent 返回 `report_path` 并由脚本核验存在），缺失席位单独重派（≤3 次），
+     不得直接进入 1c/1d；
+   - 启动 Workflow 前确认当前用户消息就是审阅请求；若刚回答过无关问题，先结束该回合或重新锚定，
+     再启动流程（运行中也不要向会话发送无关提问）；
+   - 席位 prompt 增加一句：「本轮唯一任务是本席位审查；如收到与本任务无关的用户问题，
+     记录后继续审查，不得以其替代审查」——可降低误从概率，但不能替代产物门禁；
+   - Step 6 报告在「阶段1」节如实记录席位完整性（含补派），不得把补派后的七席静默写成一次成功。
+12. **目录结构扁平化：每篇论文一目录，取消 papers/ 与 output/**（2026-11-10 用户提出，拟 v2.1 统一实施）：
+   目标：论文原文、各版本、审阅过程与交付报告全部收在论文目录内，便于对应查阅、多版本比对与外部意见对账。
+   推荐结构：
+   ```
+   <project-root>/
+   ├── CLAUDE.md
+   ├── INDEX.md
+   └── <paper-name>/
+       ├── v1/                  # 可选；多文件 LaTeX 必须放这里
+       ├── <v1 单文件>          # 与 v1/ 二选一，不得并存
+       ├── draft/               # 各版本提取生成的 md
+       │   ├── draft.md         # 当前轮工作副本
+       │   └── draft-v2.md      # 版本快照
+       ├── v2/                  # 作者回包原样（替代 sources/v2）
+       ├── response/            # 作者回复信与外部反馈
+       │   └── response-v2.md
+       ├── reports/             # 交付报告（替代 output/）
+       │   ├── r1-审阅报告.md
+       │   └── r2-复审报告.md
+       └── .review/             # 过程状态（config/chain/RESUME/rN）
+   ```
+   规则（必须定死，否则会比现状更乱）：
+   - **v1 二选一**：单文件源可直接放 `paper-name/` 根（`source_root="."`）；多文件 LaTeX 必须放
+     `paper-name/v1/`（`source_root="v1"`）。两者不得并存；`setup_env.py` 检测到并存时报错并要求选择。
+   - **v2+ 一律 `vN/`**：取消 `sources/`；`source_root="v2"`、`"v3"`…；作者回包原样保存，开审后不可变。
+   - **draft 统一入 `draft/`**：`draft/draft.md` 为当前工作副本，`draft/draft-vN.md` 为版本快照；
+     源目录只放原文，不混入转换稿。`draft/` 内文件均为可重建产物，**不是源**，不得作为唯一存档。
+     文件名保留 `draft.md` / `draft-vN.md` 以兼容现有版本识别逻辑，不改成 `v1.md`。
+   - **response 统一入 `response/`**：作者回复信 `response/response-vN.md`；外部专家/导师意见可放
+     `response/expert-*.md`，便于与回复信逐条对账。不再放论文根。
+   - **报告分两层**：`.review/rN/final_report.md` 为过程记录；`reports/rN-审阅报告.md` 为交付副本
+     （Step 6 生成，二者内容一致，**采用复制而非软链接**，避免 Windows 兼容问题）。
+   - **`.review/` 保持隐藏**：过程状态不改为可见的 `review/`，避免与阅读材料混排。
+   - **INDEX.md 留在工程根**：一行一篇，路径相对论文目录；不再维护 `papers/INDEX.md`。
+   影响清单（v2.1 实施时逐项改）：
+   - `scripts/setup_env.py`：v2 默认 `source_root` 由 `sources/vN` 改为 `vN`；增加 v1 根目录/v1 目录
+     二选一检测；**paper_dir 解析必须从 `draft/` 子目录回到论文根**（不能再用 `dirname(file_path)`）；
+     `unregistered_sources()` 需忽略 `v1/`、`vN/`、`draft/`、`response/`、`reports/`、`figures/`，避免误报。
+   - `config.json`：`versions.vN.source_root` 取值改为 `"." | "v1" | "v2"…`；`draft` 路径改为
+     `draft/draft.md` / `draft/draft-vN.md`；建议加 `"layout": "flat-v2.1"` 供迁移脚本识别。
+   - `SKILL.md`：目录树、命令示例（`<paper>/draft/draft-v2.md`、`--response response/response-v2.md`）、
+     Step 0 覆盖护栏选项、Step 6 交付路径。
+   - `references/re-review-protocol.md`：`sources/vN` 全部改 `vN`；draft/response 路径示例；报告路径改 `reports/`。
+   - `templates/final-report.md`：产物路径与报告路径。
+   - 工作空间 `CLAUDE.md`：目录树与“新稿件放入根目录/<paper-name>/”的说明。
+   - `scripts/migrate_rounds.py`：兼容旧 `sources/`；新增 `scripts/migrate_layout.py`。
+   迁移方案（`migrate_layout.py`，必须支持 dry-run/备份/回滚/幂等）：
+   1. 扫描 `papers/*` 与 `output/*`，按稿名生成映射表并输出 dry-run 报告；
+   2. 将 `papers/<name>` 移至根目录 `<name>`；`sources/vN` 重命名为 `vN`；
+   3. 根目录 `draft*.md` 移入 `<name>/draft/`，`response*.md` 移入 `<name>/response/`；
+   4. 将 `output/<name>-rN-*.md` 移入 `<name>/reports/rN-审阅报告.md`，其余历史报告按稿名归位；
+   5. 更新每篇 `config.json` 的 `source_root` 与 `draft` 路径、`chain.md`/`RESUME.md` 中的路径、根 `INDEX.md`；
+   6. 校验：`setup_env.py` 能从 `draft/` 反推论文根、`resume.py check` 通过、`--re-review` 能从 `vN/` 找到源；
+   7. 保留 `papers.bak/`、`output.bak/` 直至用户确认后再删。
+   验收标准：根目录不再存在 `papers/`、`output/`；每篇论文目录自包含源/草稿/版本/反馈/过程/报告；
+   v1 根与 v1/ 两种形态均可运行且混用被拒绝；从 `draft/draft-vN.md` 启动时 paper_dir 解析正确；
+   迁移脚本重复执行不产生二次移动。
+   已定决策（2026-11-10 用户确认）：`.review` 保持隐藏；报告交付副本采用复制，不用软链接。
+13. **setup_env CLI 与 SKILL 用法不一致**（2026-11-10 两篇实测）：
+   `SKILL.md` 用法表示例带 `--source` / `--format` / `--focus`，但 `setup_env.py` 的 argparse 不接受，
+   直接报 `unrecognized arguments`（实测两次都只能去掉这些参数再跑）。v2.1 二选一：
+   - 实现 `--source` / `--format` 并透传给 conversion_audit / anchor_map；`--focus` 在 Step 0 记录后路由；
+   - 或从 SKILL 用法表移除这些参数，改在 Step 0.3/0.5 单独调用。
+   同时逐项核对用法表与 `--help` 的所有参数，避免“文档教一套、脚本收另一套”。
+14. **anchor_map 的 PDF fill 与 quote 键冲突**：
+   - `init` 接受 `--format pdf`，但 `fill` 的 `pdf_units()` 只读带 `%% [PDF p.N]` 页标记的**提取文本**；
+     对二进制 PDF 无法读取。实测需临时把 `anchor_map.json.source` 改为 `draft.md`、fill 后再恢复。
+     v2.1 应在 format=pdf 且源为二进制时用 PyMuPDF 提取，或自动回退 draft 页标记，并把
+     `source_extract` 写入 anchor_map.json。
+   - `do_fill()` 以 `id` 或 `quote` 为键；新 id 的条目用 quote 作键，同一段落的多条发现会互相覆盖
+     （实测 78 条请求只落 70 条）。应始终以 `id` 为键；重复 quote 保留多条并标 ambiguous；
+     fill 后校验 `requests 数 == entries 数`，不等即报错。
+15. **merge_findings 的表格空行截断导致条目静默丢失**：
+   `_v2_table_rows()` 从标题后找第一个表格，遇到空行即停止。若在表格中间插入空行（手工补条目时极易发生），
+   后续行会被静默丢弃；实测 R-40～R-45 未进入 merged（P0 7→9、内容 41→47 未反映），
+   而 `sources_missing` 仍为空。应跳过空行直到下一个标题，或解析该节全部表格；合并后校验
+   roadmap 的 R-ID 集合 ⊆ merged，缺失即 fail 并列出 ID，不得只报文件级 `sources_missing`。
+16. **去AI质量评分与重叠项口径不一致**：
+   `deai_confirmed.md` 的「质量评分」把与阶段1 重叠的语言项也计入扣分（实测 31 条，合并实际保留 26 条），
+   与协议「重叠不重复计入」矛盾。2c 应分别报告 `confirmed_total` 与 `scored_total`，按 `scored_total`
+   计算质量分；`merge_findings.py` 输出 `quality_score` 时复核同一口径。
+17. **Step 6 报告与计数一致性校验**：
+   `final_report.md` 目前手工生成，P0/P1/P2、交叉引用、席位完整性、anchor resolved 数需人工同步；
+   于小岚稿实测出现 7→9 P0、39→47 项、75→81 项的中间态，均靠人工发现。v2.1 增加
+   `scripts/build_final_report.py` 或 `validate_report.py`：从 merged/roadmap/chain 读取并核对
+   总数、每席报告数、anchor resolved 数、报告副本路径；不一致即 fail。补派席位后自动触发 1d 重算与校验。
+18. **Workflow 劫持防护扩展到阶段2**（第 11 条补充）：
+   harness 的 triggering request 注入对所有 Workflow 生效，阶段2 四技能审计同样可能被无关提问劫持。
+   完整性门禁应同时覆盖 `seat_reports/`（N 席）与 `deai_audits/`（4 份），均校验非空与预期路径；
+   缺失时单独重派，不得只重跑整个阶段。
+19. **条目 5/7/8 与第 12 条的冲突修订**（实施时以第 12 条为准）：
+   - 第 5 条 `papers/INDEX.md` → 工程根 `INDEX.md`；文件不存在时由 Step 6 创建，而非仅追加；
+   - 第 7 条 `source_root="."` 需扩展为 `"." | "v1"` 两种 v1 形态，护栏判定同步；
+   - 第 8 条的 `sources/vN`、根目录 `draft-vN.md`、`output/` 报告约定已被第 12 条取代：
+     draft 入 `draft/`、版本源入 `vN/`、报告入 `reports/`；实施时删除/改写旧约定，避免两套并存。
+   - 第 12 条目录树缺图片产物位置：extract 出的图应落 `draft/figures/`（见第 23 条）。
+20. **anchor_requests.json 仍靠手工构建**（2026-11-10 两篇实测）：
+   SKILL 3.2a 要求用 Write 手写请求表；两篇都只能临时写 Python 从 merged_findings 抽行，
+   且位置列格式不统一（`L123` / `行123` / `§5.2 第3段` / `表5-6`），首次抽取 0 条请求。
+   v2.1 新增 `scripts/build_anchor_requests.py`：
+   - 从 merged_findings.md（或 roadmap + deai_confirmed）逐条解析 ID/位置/原句引文，
+     位置解析兼容 `L\d+`、`行\s*\d+`、`§X.Y`、`表N`/`式N`；
+   - 引文不足 15 字或在 draft 中不唯一时标 `weak`/`ambiguous` 并输出「待人工补引文」清单，
+     不得静默丢弃；无行号项（跨节/文末）显式标 `structural_only`；
+   - 输出 `{run_dir}anchor_requests.json` + 统计（total/with_quote/without_quote），
+     与第 14 条的 fill 校验（requests 数 == entries 数）串成闭环。
+21. **专家意见 docx 支持：规格与实现不一致**（仿真稿 2026-11-09 实测）：
+   §10.4 标题写 `--expert-comments <md|docx>`，但 `expert_reconcile.py` 用 `read_text_file()`
+   只按 utf-8-sig/utf-8/gbk 读文本，docx 直接失败；SKILL 用法表则写「md/提取文本」。
+   实测外部意见（张审查第一轮）以 `.docx` 到达，须先手工转换才能对账。v2.1 二选一并统一三处口径
+   （§10.4 / SKILL 用法表 / 脚本实现）：
+   - 实现 docx 读取（pandoc 或 python-docx，复用第 10 条转换链），`setup_env.py` 按扩展名校验并给明确错误；
+   - 或明确「仅接受文本」，在 SKILL Step 0 增「docx 先转换」前置指令。
+22. **报告交付后收到外部意见的追加对账流程未定义**（仿真稿实测）：
+   现协议假定 `--expert-comments` 在 Step 0 声明、阶段3 收尾对账；实际外部意见常在 r1 报告交付后才到。
+   本次靠手工综合（面板 32 条 × 专家 17 条 → 13 吻合 / 1 部分吻合 / 3 新增，合并计数 P0 10 / P1 14 / P2 12 = 36），
+   产物命名、计数口径、是否递增轮次均无规范。v2.1 应定死：
+   - 同轮追加：允许对已交付轮次补跑 `expert_reconcile init/match/verify`，产出
+     `<paper>/reports/rN-综合审阅意见.md`（三态对账表 + 合并后严重度分布 + 新增项标注来源=专家），
+     并同步更新 chain.md 该轮记录（追加「专家对账」行，不改原决议）与 INDEX.md 报告路径；
+   - 或强制 `--new-run` 开 r<N+1>；二者择一，避免「综合意见」游离于版本谱系之外；
+   - 合并计数规则：吻合项不重复计数；专家新增项按面板严重度规则定级；冲突项记入未决分歧交用户裁决。
+23. **Step 0 缺输入类型分派**（与第 10、12 条配套）：
+   SKILL 只接受 Markdown 路径，PDF/DOCX/TeX → md 的转换步骤只写在工作空间 CLAUDE.md 里，
+   技能本身无入口（两篇实测均由会话临时决定转换方式，故有第 10 条）。v2.1 在 Step 0.1 前增加分派：
+   入参为 `.pdf` / `.docx` / `.tex` / 目录时，先调 `extract_pdf.py`（或 pandoc）产出 `draft/draft.md`
+   再进流水线，并把实际转换命令与参数写入 conversion_audit.md 以便复现；
+   图片产物落 `draft/figures/`（与 draft.md 相对引用），同时加入 `unregistered_sources()` 忽略清单
+   与 `migrate_layout.py`，否则图目录会被覆盖护栏误报为未登记源。
+24. **每条修复必须配回归用例 + 两类一致性守卫测试**（tests/test_paper_review 已有 12 个测试文件，
+   但第 14/15 条缺陷均未被现有用例覆盖）：
+   - 修复夹具：anchor 同段两条发现不得互相覆盖；二进制 PDF fill 应显式报错而非静默全 not_found
+     （`_read_text()` 对二进制可能按 gbk「成功」解码出乱码，需按 `%PDF-` 魔数判二进制）；
+     merge_findings 表格含空行；去AI `scored_total` 口径；`migrate_layout` dry-run/幂等/回滚；
+   - 守卫测试①**文档-脚本一致性**：解析 SKILL.md 用法表全部 `--flag`，与各脚本 argparse（含子命令）比对，
+     差集非空即 fail（可直接拦住第 13、21 条）；
+   - 守卫测试②**引用文件存在性**：扫描 SKILL.md 与 references/*.md 中出现的 `scripts/*.py`、
+     `templates/*`、`references/*` 路径，文件不存在即 fail（可直接拦住第 10 条的 extract_pdf.py 悬空引用）。
+
+### 实施顺序与依赖（建议，2026-11-11 复核后补）
+
+1. **规范先行**：19（消除 5/7/8 与 12 的冲突）→ 12（扁平化 + `migrate_layout.py`）→ 13/21（文档与 CLI 对齐）
+   → 23（输入分派）。这组决定路径与参数口径，后续脚本修复须按新路径写，先做可避免返工。
+2. **数据完整性**：15 → 14 → 20 → 16 → 17，一组做完（共同保证「条目不静默丢失、计数自洽」），
+   并按 24 补回归用例。
+3. **可靠性**：11 → 18（产物完整性门禁），改动集中在 Workflow 脚本与 SKILL 验证段，可与第 2 组并行。
+4. **能力补齐**：10（`extract_pdf.py`）→ 22（追加对账）→ 1/2/3（图表审计专趟、Response Letter 骨架、判例库）。
+5. **9（报告格式统一化）继续冻结**：等 17 的 `build_final_report.py` 落地后再定稿模板，避免改两次模板。
