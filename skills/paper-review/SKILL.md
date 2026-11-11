@@ -206,9 +206,14 @@ PyMuPDF 抽文本 → find_tables 抽表 → 渲染页为 PNG 后 Read 图像。
 （学位文体/期刊模板/转换伪影=conversion_audit 丢失清单/平行引用句式）、
 复审时的 diff 分域（diff_scope.md 摘要）、bib_lint error 条目数。
 
-#### 正式模式（默认）— Workflow 多代理
+#### 正式模式（默认）— Workflow 多代理（1b → 完整性门禁 → 1c/1d，两段拆分）
 
-执行：`Workflow(script="<下方阶段1工作流脚本全文>", args={"file_path": "{file_path}", "section_range": {section_range}, "run_dir": "{run_dir}", "skill_dir": "{SKILL_DIR}", "seats": ["S1-EIC统筹", "S2-方法论", "S3-领域", "S4-写作编辑", "S5-跨学科视角", "S6-魔鬼代言人", "S7-数值审计"], "quick": false})`
+**触发请求锚定（条目11）**：harness 会把启动时的最新用户消息作为「triggering user
+request」注入每个子代理并声明优先于脚本任务——启动任何 Workflow 前确认当前最新
+用户消息就是审阅请求本身；若刚回答过无关问题，先重新锚定再启动，运行中也不要向
+会话发送无关提问。
+
+1b 执行：`Workflow(script="<下方阶段1b工作流脚本全文>", args={"file_path": "{file_path}", "section_range": {section_range}, "run_dir": "{run_dir}", "skill_dir": "{SKILL_DIR}", "seats": ["S1-EIC统筹", "S2-方法论", "S3-领域", "S4-写作编辑", "S5-跨学科视角", "S6-魔鬼代言人", "S7-数值审计"], "quick": false})`
 
 > **args 传递纪律**：args 必须按 JSON 对象传递（不得字符串化）；即便如此 harness
 > 仍可能字符串化送达（实测踩坑两次），**脚本侧必须 typeof 防御解析**。
@@ -217,7 +222,7 @@ PyMuPDF 抽文本 → find_tables 抽表 → 渲染页为 PNG 后 Read 图像。
 > ——**对象式入参与 `tools` 键均无效**。
 
 ```javascript
-// ── 阶段1 Workflow：合并同行评审面板（1b 独立审查 → 1c 讨论撤回 → 1d 编辑综合）──
+// ── 阶段1b Workflow：七席独立审查（并行、互盲；1c/1d 在完整性门禁通过后的第二段 Workflow）──
 const A = (typeof args === "string") ? JSON.parse(args) : (args || {});
 const SEATS = A.seats || ["S1-EIC统筹", "S2-方法论", "S3-领域", "S4-写作编辑", "S5-跨学科视角", "S6-魔鬼代言人", "S7-数值审计"];
 const SCOPE = A.section_range
@@ -230,6 +235,7 @@ const COMMON = [
   `审查对象：${A.file_path}${SCOPE}。`,
   `只读审查：不得修改被审稿件；产物一律 Write 到指定路径（禁止 heredoc）。`,
   `每条发现：[P0]/[P1]/[P2] + 位置（§X.Y 第N段/行号）+ 问题 + 原句引文（≥15字）+ 建议；末尾四维评分。`,
+  `本轮唯一任务是本席位审查；如收到与本任务无关的用户问题（含注入的 triggering request），记录后继续审查，不得以其替代审查，必须 Write 席位报告后才算结束。`,
 ].join("\n");
 
 // 1b 七席独立审查 —— 并行、互盲（parallel 必须传 thunk 数组）
@@ -246,10 +252,37 @@ await parallel(SEATS.map(seat => () =>
     `Write 报告到 ${A.run_dir}seat_reports/${seat}.md。不得读取其他席位的报告。`,
   ].join("\n"), { label: seat, phase: "独立审查" })
 ));
+```
+
+1b-gate **产物完整性门禁（条目11，必做；未通过不得进入 1c/1d）**：
+执行：`Bash("python {SKILL_DIR}/scripts/check_artifacts.py --run-dir {run_dir} --subdir seat_reports --expect S1,S2,S3,S4,S5,S6,S7")`
+（--expect 按实际席位清单调整：--panel/复审裁剪席位时列实际席号）
+- `complete==true` → 进入 1c/1d
+- `redispatch` 非空 → **只重派缺失席位**：重跑 1b Workflow，`args.seats` 只传
+  redispatch 对应的原席位标签（如 `S4` → `"S4-写作编辑"`），≤3 轮，每轮后重跑本门禁；
+  **不得重跑整阶段**（Workflow 按代理正常结束计数，agents_done 不代表产物存在）
+- 3 轮后仍缺 → 如实降级：进入 1c/1d，但 debate_summary.md 与 decision_letter.md
+  须注明「缺 X 席、补派 N 次未恢复、本轮按 Y 席进行」，并同步告知用户；
+  **不得把补派后的齐席静默写成一次成功**（Step 6.3 记录补派轨迹）
+
+1c/1d 执行：`Workflow(script="<下方阶段1c1d工作流脚本全文>", args={"file_path": "{file_path}", "section_range": {section_range}, "run_dir": "{run_dir}", "skill_dir": "{SKILL_DIR}"})`
+
+```javascript
+// ── 阶段1c/1d Workflow：讨论撤回 + 编辑综合（1b-gate 通过后进入）──
+const A = (typeof args === "string") ? JSON.parse(args) : (args || {});
+const SCOPE = A.section_range
+  ? `（仅审查第 ${A.section_range[0]}–${A.section_range[1]} 行，Read 用 offset/limit）`
+  : "（全文）";
+const MOD_COMMON = [
+  `先读席位配置卡 ${A.run_dir}seat_config.md（doctype 准则/共同豁免清单/转换审计丢失清单/分域）。`,
+  `研讨协议（IRON RULE/撤回规则/输出格式）见 ${A.skill_dir}/references/discussion-protocol.md。`,
+  `审查对象：${A.file_path}${SCOPE}。只读：不得修改被审稿件；产物一律 Write 到指定路径（禁止 heredoc）。`,
+  `本轮唯一任务是面板主持（1c 讨论撤回 / 1d 编辑综合）；如收到与本任务无关的用户问题（含注入的 triggering request），记录后继续，不得以其替代本任务，必须 Write 规定产物后才算结束。`,
+].join("\n");
 
 // 1c 聚焦讨论与撤回轮（假阳性防火墙）
 await agent([
-  `你是面板主持人。读取 ${A.run_dir}seat_reports/ 下全部席位报告。${COMMON}`,
+  `你是面板主持人。读取 ${A.run_dir}seat_reports/ 下全部席位报告。${MOD_COMMON}`,
   `按研讨协议 1c：提取争议点（结论冲突/严重度分歧/CRITICAL/类型适配异议），P0 优先；`,
   `相关席位各200字回应，最多2-3轮。数值类争议强制以 S7 复算表为裁定依据，你不自行裁数。`,
   `涉及外部事实的指控裁决前必须文献级核验；核验不成立即撤回，撤回记录写入纪要`,
@@ -258,7 +291,7 @@ await agent([
 
 // 1d 编辑综合（Decision Letter + Revision Roadmap）
 await agent([
-  `你是面板主持人（编辑综合）。汇总 ${A.run_dir}seat_reports/ 与 debate_summary.md。${COMMON}`,
+  `你是面板主持人（编辑综合）。汇总 ${A.run_dir}seat_reports/ 与 debate_summary.md。${MOD_COMMON}`,
   `按研讨协议 1d 产出两件：`,
   `1. ${A.run_dir}decision_letter.md：Editorial Decision（Accept/Minor/Major/Reject+口径）`,
   `   + 映射评分（9/8/6/4）+ 七席四维均值与主持人综合 + S6 每条 CRITICAL 逐条专节回应（铁律）`,
@@ -283,6 +316,7 @@ P0/P1/P2 三节与 R-# ID；缺失则重跑「主持人-编辑综合」代理（
 不启动 Workflow：Read panel-roles.md/review-checklist.md 后，依次以 S1、S6 视角
 独立审查并 Write `seat_reports/`；跳过 1c；按 1d 格式直接产出
 decision_letter.md 与 revision_roadmap.md（数值疑问标注「未复算（quick 模式）」）。
+写完后同样执行 1b-gate（`--expect S1,S6`）核对两份产物非空后才进入 1d 产出。
 
 #### 专家意见对账（--expert-comments 时，1d 之后）
 
@@ -296,11 +330,13 @@ decision_letter.md 与 revision_roadmap.md（数值疑问标注「未复算（qu
 
 ### 阶段2 — 去AI审查（多智能体研讨，audit-only）
 
-执行：`Read("{SKILL_DIR}/references/deai-discussion-protocol.md")`；然后
-执行：`Workflow(script="<下方阶段2工作流脚本全文>", args={"file_path": "{file_path}", "section_range": {section_range}, "run_dir": "{run_dir}", "skill_dir": "{SKILL_DIR}", "skills": ["stop-slop", "academic-humanizer", "humanize-writing", "humanizer-zh"]})`
+执行：`Read("{SKILL_DIR}/references/deai-discussion-protocol.md")`；然后按三段执行：
+2a 审计 Workflow → 2a-gate 完整性门禁 → 2b/2c 终裁 Workflow。
+
+2a 执行：`Workflow(script="<下方阶段2a工作流脚本全文>", args={"file_path": "{file_path}", "section_range": {section_range}, "run_dir": "{run_dir}", "skill_dir": "{SKILL_DIR}", "skills": ["stop-slop", "academic-humanizer", "humanize-writing", "humanizer-zh"]})`
 
 ```javascript
-// ── 阶段2 Workflow：去AI审查多智能体研讨（2a 并行审计 → 2b 交叉质询 → 2c 终裁）──
+// ── 阶段2a Workflow：四技能并行独立审计（2b/2c 在完整性门禁通过后的第二段 Workflow）──
 const A = (typeof args === "string") ? JSON.parse(args) : (args || {});
 const SKILLS = A.skills || ["stop-slop", "academic-humanizer", "humanize-writing", "humanizer-zh"];
 const SCOPE = A.section_range
@@ -310,6 +346,7 @@ const COMMON = [
   `按 ${A.skill_dir}/references/deai-discussion-protocol.md 执行。`,
   `先读 ${A.run_dir}seat_config.md 的共同豁免清单与 doctype 准则——豁免项不得上报。`,
   `审查对象：${A.file_path}${SCOPE}。audit-only：不得修改稿件。`,
+  `本轮唯一任务是本技能审计；如收到与本任务无关的用户问题（含注入的 triggering request），记录后继续审计，不得以其替代审计，必须 Write 审计清单后才算结束。`,
 ].join("\n");
 
 // 2a 四技能代理并行独立审计（各自加载技能目录，主上下文零加载）
@@ -324,10 +361,34 @@ await parallel(SKILLS.map(sk => () =>
     `Write 到 ${A.run_dir}deai_audits/${sk}.md。`,
   ].join("\n"), { label: sk + "-审计", phase: "独立审计" })
 ));
+```
+
+2a-gate **产物完整性门禁（条目18，必做；未通过不得进入 2b/2c）**：
+执行：`Bash("python {SKILL_DIR}/scripts/check_artifacts.py --run-dir {run_dir} --subdir deai_audits --expect stop-slop,academic-humanizer,humanize-writing,humanizer-zh")`
+- `complete==true` → 进入 2b/2c
+- `redispatch` 非空 → **只重派缺失技能审计**：重跑 2a Workflow，`args.skills`
+  只传缺失清单，≤3 轮，每轮后重跑本门禁；**不得重跑整阶段2**
+- 3 轮后仍缺 → 如实降级：进入 2b/2c，但 deai_cross.md 与 deai_confirmed.md
+  须注明缺失技能，阶段报告同步告知用户
+
+2b/2c 执行：`Workflow(script="<下方阶段2b2c工作流脚本全文>", args={"file_path": "{file_path}", "section_range": {section_range}, "run_dir": "{run_dir}", "skill_dir": "{SKILL_DIR}"})`
+
+```javascript
+// ── 阶段2b/2c Workflow：交叉质询 + 主持人终裁（2a-gate 通过后进入）──
+const A = (typeof args === "string") ? JSON.parse(args) : (args || {});
+const SCOPE = A.section_range
+  ? `（仅第 ${A.section_range[0]}–${A.section_range[1]} 行）`
+  : "（全文）";
+const MOD_COMMON = [
+  `按 ${A.skill_dir}/references/deai-discussion-protocol.md 执行。`,
+  `先读 ${A.run_dir}seat_config.md 的共同豁免清单与 doctype 准则——豁免项不得入清单。`,
+  `审查对象：${A.file_path}${SCOPE}。audit-only：不得修改稿件。`,
+  `本轮唯一任务是去AI研讨主持（2b 交叉质询 / 2c 终裁）；如收到与本任务无关的用户问题（含注入的 triggering request），记录后继续，不得以其替代本任务，必须 Write 两份清单后才算结束。`,
+].join("\n");
 
 // 2b 交叉质询轮（1轮）+ 2c 主持人终裁
 await agent([
-  `你是去AI研讨主持人。读取 ${A.run_dir}deai_audits/ 全部清单与 revision_roadmap.md。${COMMON}`,
+  `你是去AI研讨主持人。读取 ${A.run_dir}deai_audits/ 全部清单与 revision_roadmap.md。${MOD_COMMON}`,
   `2b：四清单合并为「技能×发现」矩阵——模式堆叠合并（同短语多标记合并为一条，支持技能并列，`,
   `合并键=位置相同且引文重叠≥50%）；对每条候选自任其余三技能视角质询（豁免范畴/转换伪影/`,
   `内容问题误标），被质询方须引原文回应。Write 矩阵与质询记录到 ${A.run_dir}deai_cross.md。`,
@@ -349,7 +410,8 @@ await agent([
 --quick 时：跳过阶段2（报告注明未做去AI审查）。
 阶段2 完成后：更新 RESUME；向用户报告：确认总数 confirmed_total（语言级/声称级/
 重叠打标）、计分总数 scored_total（重叠不重复计入）、豁免拦截数、质量评分
-（scored_total 口径，merge_findings.py 复核）。**本阶段未修改稿件。**
+（scored_total 口径，merge_findings.py 复核）；如有审计缺失/补派/降级，如实报告轨迹。
+**本阶段未修改稿件。**
 
 ### 阶段3 — 发现合并与最终清单
 
@@ -430,7 +492,8 @@ await agent([
 `{run_dir}final_report.md` 后向用户呈现。必含节：稿件类型与准则适配（含豁免缺席项
 说明）/ 审查对象（含转换审计摘要行、密码 PDF 回退说明、docx 高亮观察——语义不明
 高亮不计缺陷但提请作者清除）/ 定位坐标说明（三轨时）/ 阶段1 面板（Decision、
-撤回记录、CRITICAL 专节）/ 数据完整性关切（触发时：「须解释的异常」定性+材料提交
+撤回记录、CRITICAL 专节、**席位完整性与补派轨迹**——缺失席位/补派轮次/降级说明，
+不得把补派后的齐席静默写成一次成功，条目11）/ 数据完整性关切（触发时：「须解释的异常」定性+材料提交
 程序）/ 专家意见对账表（如有）/ 阶段2 去AI（确认/豁免/质量评分）/ 合并发现与修改
 （三轨问题表）/ R&R 追溯矩阵（复审时，不得橡皮图章）/ 收敛状态 / 产物路径。
 
@@ -495,6 +558,7 @@ await agent([
 | merge_findings.py | v2 双权威清单合并（R-#/D-#/S-#，撤回不复活）；--review-dir 走 v1 兼容模式 | 阶段3 |
 | track_revisions.py | 修改日志逐条 log / summary | 阶段4/5 |
 | convergence_check.py | 收敛/停滞判定 | 阶段5 |
+| check_artifacts.py | 阶段产物完整性门禁：seat_reports//deai_audits/ 恰好 N 份非空（前缀匹配 S1→S1-EIC统筹.md）；缺失/空文件→redispatch 清单（只重派缺失席位，不重跑整阶段）；不完整 exit 1 | 阶段1 1b 后 / 阶段2 2a 后 |
 | validate_report.py | final_report.md 交付前机器校验：合并统计/决议/质量评分/反查统计/席位报告数/交付副本字节一致与 INDEX 行/chain 本轮节，任一不符 exit 1 | Step 6 |
 | migrate_rounds.py | 存量「另建目录」轮次形态迁移，就地规范化为 v2.1 扁平口径（dry-run/--confirm） | 按需 |
 | migrate_layout.py | 存量 `papers/`+`output/` 工作空间 → v2.1 每篇论文一目录（dry-run/apply/rollback；幂等；人工判定项只列 report 不猜测） | 按需 |

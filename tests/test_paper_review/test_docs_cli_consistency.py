@@ -49,7 +49,7 @@ EXPECTED_MENTIONED_SCRIPTS = {
     SETUP_ENV, "resume", "conversion_audit", "anchor_map", "bib_lint",
     "diff_scope", "numeric_checks", "expert_reconcile", "merge_findings",
     "track_revisions", "convergence_check", "migrate_rounds", "migrate_layout",
-    "build_anchor_requests", "validate_report",
+    "build_anchor_requests", "validate_report", "check_artifacts",
 }
 
 

@@ -43,6 +43,10 @@
   - [ ] Tier1 AI 词汇（delve/leverage/paradigm…）
 - doctype 豁免：豁免清单内的模式（学位文体/期刊模板/转换伪影/平行引用句式）
   **不得上报**；代理拿不准的标「待裁定」交 2b
+- **2a-gate 产物完整性门禁（v2.1 条目18）**：2a 结束后、进入 2b 前，由 SKILL 执行
+  `check_artifacts.py --subdir deai_audits --expect stop-slop,academic-humanizer,humanize-writing,humanizer-zh`
+  校验四份审计恰好齐且非空；缺失只重派该技能（≤3 轮），仍缺则如实降级并在
+  deai_cross.md/deai_confirmed.md 注明——Workflow 的 agents_done 计数不代表产物存在
 
 ## 2b 交叉质询轮（1 轮）
 

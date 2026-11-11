@@ -1,6 +1,6 @@
 # paper-review v2.1 实施账本
 
-- 当前组：G3
+- 当前组：G4
 - 更新时间：2026-11-11
 - 待补 push：git pull/push 网络失败（Connection reset），离线开工，push 待补
 
@@ -10,7 +10,7 @@
 |---|---|---|---|---|---|
 | G1 | 19,12,13,21,23,24 | done | f687cbd | 15 文件 212 用例全绿 | G1 验证命令通过：夹具 dry-run 输出 5 类待确认项（10 条）、26 moves、5 rewrites、零文件改动、无 .migrate-layout 残留 |
 | G2 | 15,14,20,16,17 | done | 410881d | 17 文件 264 用例全绿 | 条目17 二选一取 validate_report.py（校验器而非生成器）；条目20 仅 merged 单源输入 |
-| G3 | 11,18 | todo | | | |
+| G3 | 11,18 | done | （待回填） | 18 文件 276 用例全绿 | 阶段1/2 各拆两段 Workflow，中间插 check_artifacts.py 门禁；防劫持条款进全部代理 prompt |
 | G4 | 10,22,1,2,3 | todo | | | |
 
 ### G1 明细（2026-11-11）
@@ -50,6 +50,22 @@
 - 守卫测试 meta 集合同步：EXPECTED_MENTIONED_SCRIPTS +build_anchor_requests/validate_report
 - 测试合计：264 = G1 的 212 + build_anchor_requests 14 + validate_report 21 +
   merge_findings_v2 新增 7 + anchor_map 新增 10（17 文件全绿）
+
+### G3 明细（2026-11-11）
+
+- 新增：`check_artifacts.py`（--run-dir/--subdir/--expect/--ext；恰好 N 份非空、
+  前缀匹配 S1→S1-EIC统筹.md、多余文件 unexpected 判不完整、redispatch=missing+empty、
+  不完整 exit 1）+ test_check_artifacts.py（12）
+- SKILL.md：阶段1 拆 1b Workflow（七席∥）→ 1b-gate → 1c/1d Workflow（主持人用
+  MOD_COMMON，防劫持条款）；阶段2 拆 2a Workflow（四技能∥）→ 2a-gate → 2b/2c
+  Workflow；「触发请求锚定」提示（harness 注入最新用户消息且声明优先）；quick 模式
+  写完 seat_reports 同样过门禁（--expect S1,S6）；Step 6.3 必含「席位完整性与补派
+  轨迹」；阶段报告行如实记录补派/降级；脚本清单 +1 行
+- 防劫持条款进 4 处 prompt COMMON：席位（1b）、审计（2a）、面板主持（1c/1d）、去AI主持（2b/2c）
+- 文档：templates/final-report.md §3 席位完整性行 + §4 审计完整性；
+  deai-discussion-protocol.md 2a 节增门禁说明；备忘条目 11/18 加实施注记；CHANGELOG G3 节
+- 守卫 meta：EXPECTED_MENTIONED_SCRIPTS +check_artifacts
+- 测试合计：276 = G2 的 264 + check_artifacts 12（18 文件全绿）
 
 ## 备忘修订记录
 （条目号 / 修订内容 / 原因）
