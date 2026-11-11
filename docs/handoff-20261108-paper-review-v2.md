@@ -378,6 +378,16 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
    - 参考文献按 `[N]` 切分为 refs.txt，供 bib_lint 直接消费
    - 回填 conversion_audit 的源侧计数，表格线性化/公式文本化列入共同豁免
    同时修正 format-notes.md 的脚本路径与调用示例，避免下次再临时造轮子。
+   **⚠ 名称撞车提醒（2026-11-11 复核发现）**：`skills/lit-research/scripts/extract_pdf.py` **已存在**，
+   但它是文献卡场景的**节选提取器**（前 8 页 + 后 3 页、每页 ≤3000 字符、可从 URL 下载、
+   产物名 `NNN_src_*.pdf` / `NNN_extract_*.txt`），**不能直接用于全文稿件审阅**（学位论文 186 页会被截断）。
+   format-notes.md 的「已固化」很可能就是把它误当成本技能脚本。v2.1 二选一：
+   - 提升为 `shared/scripts/pdf_extract.py`，加 `--mode excerpt|full-manuscript` 双模式（excerpt 保持
+     lit-research 现行为不变，full-manuscript 实现上述全部要求），两技能各自调用；
+   - 或在 `skills/paper-review/scripts/` 下新建独立 `extract_pdf.py`（full-manuscript 专用），
+     并在 lit-research 那份的 docstring 注明「节选提取，勿用于全文审阅」。
+   无论哪种，`tests/test_lit_research/test_extract_pdf.py`（页标记用例）须继续通过，
+   并为 full-manuscript 模式新增夹具（建议用于小岚 186 页 PDF 的前 10 页切片）。
 11. **Workflow 席位被用户消息劫持导致漏派**（2026-11-10 用户提出，连续两篇实测）：
    现象：全昌寿稿 S4、于小岚稿 S3 在阶段1 七席并行时未产出报告，但 Workflow 统计为
    `agents_done=9, agents_error=0`，无自动重试；1c 主持人只能标注缺口或按六席计算。
@@ -455,6 +465,21 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
    v1 根与 v1/ 两种形态均可运行且混用被拒绝；从 `draft/draft-vN.md` 启动时 paper_dir 解析正确；
    迁移脚本重复执行不产生二次移动。
    已定决策（2026-11-10 用户确认）：`.review` 保持隐藏；报告交付副本采用复制，不用软链接。
+   **存量实测清单（2026-11-11 核对 paper-reviewer 工作空间，可直接当 migrate_layout 的验收夹具）**：
+   8 篇稿件 + 根 `papers/INDEX.md` + `output/` 17 个文件，其中 5 类需人工判定、脚本须能列出待确认项而非猜测：
+   - `q10/`：根目录并存 draft.md 与 draft-v2…v5.md + `sources/`，报告名非标准
+     （`q10-1-复审报告.md`/`q10-2-审阅报告.md`/`q10-3-审阅报告.md`/`q10-r5-re-review-report.md`/
+     `q10-去AI替换对照清单-全量.md`）→ 轮次号需从文件名或 chain.md 反推；
+   - `xue-paper-latex/`：完整 LaTeX 工程（`chapters/`、`figure/`、latexmkrc、编译产物 .lof/.lot/.toc/.pdf、
+     以及 LICENSE/README.md/_config.yml 等无关文件）→ 必须整体入 `v1/`，且 v1 二选一检测不得被
+     根目录 README/LICENSE 干扰；
+   - `li-paper-v13/`、`zhang-paper/`、`仿真稿件-20261105/`：docx + pandoc `media/` 图目录；
+   - `于小岚…/`、`全昌寿…/`：PDF + PyMuPDF `figures/` 图目录；
+   - `output/` 内的**非报告文件**须归入对应论文 `response/`：
+     `仿真稿件-20261105-审阅报告（张审查第一轮）.20261109.docx`（外部专家意见）、
+     `何论文意见.20261011.docx`（he-paper 外部意见）；
+     `仿真稿件-20261105-综合审阅意见.md/.docx` 属交付报告 → `reports/`。
+   注意：paper-reviewer 工作空间**不是 git 仓库**，迁移无版本回退，只能依赖 `papers.bak/`、`output.bak/`。
 13. **setup_env CLI 与 SKILL 用法不一致**（2026-11-10 两篇实测）：
    `SKILL.md` 用法表示例带 `--source` / `--format` / `--focus`，但 `setup_env.py` 的 argparse 不接受，
    直接报 `unrecognized arguments`（实测两次都只能去掉这些参数再跑）。v2.1 二选一：
@@ -526,6 +551,9 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
    再进流水线，并把实际转换命令与参数写入 conversion_audit.md 以便复现；
    图片产物落 `draft/figures/`（与 draft.md 相对引用），同时加入 `unregistered_sources()` 忽略清单
    与 `migrate_layout.py`，否则图目录会被覆盖护栏误报为未登记源。
+   **图目录有两种既存形态**（实测 8 篇稿件）：pandoc 转 docx 产出 `media/`，PyMuPDF 提取产出 `figures/`；
+   忽略清单与迁移脚本须同时覆盖两者（建议统一收敛到 `draft/figures/`，迁移时把 `media/` 一并移入并
+   改写 draft.md 内的图片相对路径）。
 24. **每条修复必须配回归用例 + 两类一致性守卫测试**（tests/test_paper_review 已有 12 个测试文件，
    但第 14/15 条缺陷均未被现有用例覆盖）：
    - 修复夹具：anchor 同段两条发现不得互相覆盖；二进制 PDF fill 应显式报错而非静默全 not_found
