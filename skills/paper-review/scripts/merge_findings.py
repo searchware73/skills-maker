@@ -9,13 +9,24 @@
   仅对重叠打标项做交叉引用（S-#），不做跨源模糊去重；
   config.json 撤回记录中的 ID 不得复活（withdrawn_skipped）。
 
+  v2.1 完整性保障（条目15/16）：
+  - 表格解析跳过空行与节内散文直到下一标题（手工补条目插入的空行
+    不再截断表格、静默丢行）；
+  - roadmap 显式声明的 R-ID 必须全部进入 merged（撤回豁免），缺失即
+    exit 1 并列出 ID；
+  - deai_confirmed 双口径：confirmed_total（确认总数）/ scored_total
+    （计分总数=去除重叠项），质量评分按 scored_total；与 2c 声明值
+    不一致时 stderr 告警并写入 quality_basis_warnings。
+
   用法：
     python merge_findings.py --run-dir DIR [--roadmap FILE] [--deai FILE] [--output FILE]
 
   输出（stdout，JSON）：
     {"success": true, "mode": "v2", "p0": N, "p1": N, "p2": N, "total": N,
-     "content_items": N, "deai_items": N, "cross_refs": N,
+     "content_items": N, "deai_items": N,
+     "deai_confirmed_total": N, "deai_scored_total": N, "cross_refs": N,
      "withdrawn_skipped": [...], "decision": "...", "quality_score": "38/50",
+     "quality_score_basis": "scored_total", "quality_basis_warnings": [...],
      "output": "...", "sources_missing": [...]}
 
 ═══ v1 兼容模式（--review-dir，保留一个版本后移除）═══
@@ -455,7 +466,8 @@ def run_v1(args):
 #   deai_confirmed.md：单表，列
 #     | ID | 位置 | 问题 | 建议 | 支持技能 | 严重度 | 重叠标记 |
 #     重叠标记=R-# 时该条不重复计入，转入交叉引用表（S-#）
-#     「质量评分: N/50」行被提取进 JSON
+#     「质量评分: N/50」行被提取进 JSON；「确认总数 confirmed_total: N」
+#     「计分总数 scored_total: M」行（v2.1 条目16）用于口径复核
 
 V2_SEV_HEAD_RE = re.compile(r"^#{2,3}\s*P([012])\b")
 V2_DECISION_RE = re.compile(
@@ -471,11 +483,23 @@ def _read_md(path):
         return f.read().splitlines()
 
 
-def _v2_table_rows(lines, start=0):
-    """从 start 起解析第一个 markdown 表格，返回 (dict行列表, 下一行号)；列按表头名映射"""
+def _v2_table_rows(lines, start=0, stop_at_heading=True):
+    """从 start 起解析 markdown 表格行，返回 (dict行列表, 下一行号)；列按表头名映射。
+
+    v2.1 条目15：**空行不再终止解析**——手工补条目曾在表格中间插入空行，
+    其后全部行被静默丢弃（实测 R-40~R-45 未进 merged 而 sources_missing 为空）。
+    现跳过空行与节内散文，收集本节（到下一标题或 EOF 为止）的**全部表格**；
+    续表重复表头行自动跳过。stop_at_heading=True 时找表阶段遇到标题即止
+    （小节内解析用）；False 则越过文档主标题继续找首个表格（整文件解析用）。
+    """
     i = start
     n = len(lines)
-    while i < n and not lines[i].strip().startswith("|"):
+    while i < n:
+        s = lines[i].strip()
+        if s.startswith("|"):
+            break
+        if stop_at_heading and s.startswith("#"):
+            return [], i
         i += 1
     if i >= n:
         return [], i
@@ -484,12 +508,21 @@ def _v2_table_rows(lines, start=0):
     if i < n and is_sep_row([c.strip() for c in lines[i].strip().strip("|").split("|")]):
         i += 1
     rows = []
-    while i < n and lines[i].strip().startswith("|"):
-        cells = [c.strip() for c in lines[i].strip().strip("|").split("|")]
-        if not is_sep_row(cells):
+    while i < n:
+        s = lines[i].strip()
+        if s.startswith("#"):
+            break                       # 下一标题：本节结束
+        if s.startswith("|"):
+            cells = [c.strip() for c in s.strip("|").split("|")]
+            i += 1
+            if is_sep_row(cells):
+                continue
+            if cells == header:         # 续表重复表头：跳过（列映射不变）
+                continue
             rows.append({h: (cells[k] if k < len(cells) else "")
                          for k, h in enumerate(header)})
-        i += 1
+            continue
+        i += 1                          # 空行/节内散文：跳过，继续找后续表格
     return rows, i
 
 
@@ -511,13 +544,16 @@ def _next_id(prefix, used):
 
 
 def parse_roadmap(path):
-    """解析 revision_roadmap.md → (items, decision)。
-    items: [{id, sev, loc, desc, sugg, seats, effort, accept}]"""
+    """解析 revision_roadmap.md → (items, decision, declared_ids)。
+    items: [{id, sev, loc, desc, sugg, seats, effort, accept}]
+    declared_ids: ID 列出现过的全部显式 R-#（含 desc 为空被跳过的行——
+    条目15 完整性校验用：这些 ID 必须进入 merged 或在撤回清单中）"""
     lines = _read_md(path)
     if lines is None:
-        return None, None
+        return None, None, set()
     decision = None
     items, used = [], set()
+    declared = set()
     cur_sev = None
     auto_no = 0
     for i, line in enumerate(lines):
@@ -533,11 +569,13 @@ def parse_roadmap(path):
             cur_sev = "P" + m.group(1)
             rows, _ = _v2_table_rows(lines, i + 1)
             for row in rows:
+                rid_cell = _v2_pick(row, "ID")
+                m2 = V2_ID_RE.search(rid_cell)
+                if m2 and m2.group(1) == "R":
+                    declared.add(m2.group(0))
                 desc = _v2_pick(row, "问题")
                 if not desc:
                     continue
-                rid = _v2_pick(row, "ID")
-                m2 = V2_ID_RE.search(rid)
                 rid = m2.group(0) if m2 else None
                 if rid is None:
                     auto_no += 1
@@ -562,7 +600,7 @@ def parse_roadmap(path):
                     it["id"] = "R-%d" % k
                     real_ids.add(it["id"])
                     break
-    return items, decision
+    return items, decision, declared
 
 
 def _is_placeholder(rid):
@@ -571,18 +609,25 @@ def _is_placeholder(rid):
 
 
 def parse_deai_confirmed(path):
-    """解析 deai_confirmed.md → (items, quality_score)。
-    items: [{id, sev, loc, desc, sugg, skills, overlap}]"""
+    """解析 deai_confirmed.md → (items, quality_score, declared_counts)。
+    items: [{id, sev, loc, desc, sugg, skills, overlap}]
+    declared_counts: {"confirmed_total": int|None, "scored_total": int|None}
+    （条目16：2c 分别报告确认总数与计分总数，质量评分按 scored_total 口径；
+    声明值与解析实得不一致时由 run_v2 复核并告警）"""
     lines = _read_md(path)
     if lines is None:
-        return None, None
+        return None, None, {}
     quality = None
+    declared_counts = {"confirmed_total": None, "scored_total": None}
     for line in lines:
         m = V2_QUALITY_RE.search(line)
-        if m:
+        if m and quality is None:
             quality = re.sub(r"\s+", "", m.group(1))
-            break
-    rows, _ = _v2_table_rows(lines)
+        for key in ("confirmed_total", "scored_total"):
+            mc = re.search(key + r"\s*[:：]?\s*(\d+)", line, re.IGNORECASE)
+            if mc and declared_counts[key] is None:
+                declared_counts[key] = int(mc.group(1))
+    rows, _ = _v2_table_rows(lines, 0, stop_at_heading=False)
     items, used = [], set()
     auto_no = 0
     for row in rows:
@@ -608,7 +653,7 @@ def parse_deai_confirmed(path):
             "skills": _v2_pick(row, "支持技能", "技能"),
             "overlap": ov_m.group(0) if ov_m and ov_m.group(1) == "R" else None,
         })
-    return items, quality
+    return items, quality, declared_counts
 
 
 def load_withdrawn(run_dir):
@@ -627,7 +672,8 @@ def load_withdrawn(run_dir):
 
 
 def write_output_v2(path, content_items, deai_items, cross_refs, withdrawn,
-                    decision, quality, missing):
+                    decision, quality, missing,
+                    confirmed_total=None, scored_total=None):
     counts = {"P0": 0, "P1": 0, "P2": 0}
     for f in content_items + deai_items:
         counts[f["sev"]] = counts.get(f["sev"], 0) + 1
@@ -683,7 +729,13 @@ def write_output_v2(path, content_items, deai_items, cross_refs, withdrawn,
             out.append("- %s（撤回记录见 config.json）" % w)
         out.append("")
     if quality:
-        out.append("去AI质量评分：%s" % quality)
+        # 条目16：评分口径显式化——质量分按 scored_total（重叠项不重复计分）
+        if scored_total is not None and confirmed_total is not None:
+            out.append("去AI质量评分：%s（计分口径 scored_total=%d；确认总数 "
+                       "confirmed_total=%d，其中重叠 %d 项不重复计分）"
+                       % (quality, scored_total, confirmed_total, len(cross_refs)))
+        else:
+            out.append("去AI质量评分：%s" % quality)
         out.append("")
     out.append("## 统计")
     out.append("")
@@ -709,17 +761,17 @@ def run_v2(args):
     output = args.output or os.path.join(args.run_dir, "merged_findings.md")
 
     missing = []
-    content_items, decision = parse_roadmap(roadmap_path)
+    content_items, decision, declared_ids = parse_roadmap(roadmap_path)
     if content_items is None:
         missing.append(os.path.basename(roadmap_path))
         print("警告：Revision Roadmap 不存在，跳过: %s" % roadmap_path, file=sys.stderr)
-        content_items, decision = [], None
+        content_items, decision, declared_ids = [], None, set()
 
-    deai_items, quality = parse_deai_confirmed(deai_path)
+    deai_items, quality, declared_counts = parse_deai_confirmed(deai_path)
     if deai_items is None:
         missing.append(os.path.basename(deai_path))
         print("警告：确认AI问题清单不存在，跳过: %s" % deai_path, file=sys.stderr)
-        deai_items, quality = [], None
+        deai_items, quality, declared_counts = [], None, {}
     if len(missing) == 2:
         print("错误：两份权威清单均缺失，无可合并输入", file=sys.stderr)
         return 1
@@ -736,6 +788,17 @@ def run_v2(args):
     content_items = [f for f in content_items if not _drop_withdrawn(f)]
     deai_items = [f for f in deai_items if not _drop_withdrawn(f)]
 
+    # 条目15：roadmap 显式声明的 R-ID 必须全部进入 merged（撤回豁免），
+    # 缺失即 fail 并列 ID——不得只报文件级 sources_missing（R-40~R-45 静默丢失教训）
+    merged_ids = set(it["id"] for it in content_items)
+    lost_ids = sorted(declared_ids - merged_ids - withdrawn_ids)
+    if lost_ids:
+        print("错误：roadmap 声明的 %d 个 R-ID 未进入合并清单（且不在撤回记录中）: %s"
+              % (len(lost_ids), ", ".join(lost_ids)), file=sys.stderr)
+        print("请检查 %s 对应行（「问题」列为空或表格结构破损），修复后重跑"
+              % os.path.basename(roadmap_path), file=sys.stderr)
+        return 1
+
     # 重叠打标 → 交叉引用（S-#），不重复计入
     cross_refs, kept_deai = [], []
     s_no = 0
@@ -749,9 +812,25 @@ def run_v2(args):
         else:
             kept_deai.append(f)
 
+    # 条目16：confirmed_total / scored_total 双口径 + 与 2c 声明值复核
+    confirmed_total = len(deai_items)          # 撤回过滤后的全部确认项（含重叠）
+    scored_total = len(kept_deai)              # 计分口径：重叠项不重复计入
+    basis_warnings = []
+    for key, actual in (("confirmed_total", confirmed_total),
+                        ("scored_total", scored_total)):
+        declared = declared_counts.get(key)
+        if declared is not None and declared != actual:
+            w = ("deai_confirmed.md 声明 %s=%d，但按重叠标记解析实得 %d"
+                 "（重叠项应转 S-# 交叉引用，质量评分按 scored_total 口径）"
+                 % (key, declared, actual))
+            basis_warnings.append(w)
+            print("警告：" + w, file=sys.stderr)
+
     try:
         counts, total = write_output_v2(output, content_items, kept_deai, cross_refs,
-                                        withdrawn, decision, quality, missing)
+                                        withdrawn, decision, quality, missing,
+                                        confirmed_total=confirmed_total,
+                                        scored_total=scored_total)
     except OSError as e:
         print("错误：写入输出文件失败: %s" % e, file=sys.stderr)
         return 1
@@ -763,10 +842,14 @@ def run_v2(args):
         "total": total,
         "content_items": len(content_items),
         "deai_items": len(kept_deai),
+        "deai_confirmed_total": confirmed_total,
+        "deai_scored_total": scored_total,
         "cross_refs": len(cross_refs),
         "withdrawn_skipped": withdrawn,
         "decision": decision,
         "quality_score": quality,
+        "quality_score_basis": "scored_total" if quality else None,
+        "quality_basis_warnings": basis_warnings,
         "sources_missing": missing,
         "output": os.path.abspath(output).replace("\\", "/"),
     }

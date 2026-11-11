@@ -37,6 +37,8 @@
 工作坐标=draft 行号（编辑后漂移）；源坐标=tex 文件:行 / docx 段落序 / pdf 页码
 （源文件被编辑后同样漂移）；结构坐标=章节/表/公式编号+原句引文
 （**不随编辑漂移，为兜底锚点**）。反查失败/歧义项源位置显示 `—（回退结构坐标）`。
+- 反查统计：resolved {R} / ambiguous {A} / not_found {F} / structural_only {S}（共 {N} 条，
+  与 anchor_map.json entries 计数一致；validate_report.py 机器核对）
 
 ## 3. 阶段1 合并面板
 

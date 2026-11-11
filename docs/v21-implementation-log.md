@@ -1,6 +1,6 @@
 # paper-review v2.1 实施账本
 
-- 当前组：G2
+- 当前组：G3
 - 更新时间：2026-11-11
 - 待补 push：git pull/push 网络失败（Connection reset），离线开工，push 待补
 
@@ -9,7 +9,7 @@
 | 组 | 条目 | 状态 | 提交号 | 测试 | 备注 |
 |---|---|---|---|---|---|
 | G1 | 19,12,13,21,23,24 | done | f687cbd | 15 文件 212 用例全绿 | G1 验证命令通过：夹具 dry-run 输出 5 类待确认项（10 条）、26 moves、5 rewrites、零文件改动、无 .migrate-layout 残留 |
-| G2 | 15,14,20,16,17 | doing | | | |
+| G2 | 15,14,20,16,17 | done | （待回填） | 17 文件 264 用例全绿 | 条目17 二选一取 validate_report.py（校验器而非生成器）；条目20 仅 merged 单源输入 |
 | G3 | 11,18 | todo | | | |
 | G4 | 10,22,1,2,3 | todo | | | |
 
@@ -29,6 +29,28 @@
   expert_reconcile 26 + merge_findings 7 + merge_findings_v2 8 + migrate_layout 24 + migrate_rounds 11 +
   numeric_checks 17 + referenced_files 5 + resume 20 + setup_env_v2 31 + skill_invocation 4
 
+### G2 明细（2026-11-11）
+
+- 修改：`merge_findings.py`（条目15：`_v2_table_rows` 空行/散文不截断、收集本节全部表格、
+  重复表头跳过；声明 R-ID ⊆ 合并∪撤回 校验，缺失 exit 1 不写输出。条目16：confirmed_total/
+  scored_total 双口径 + quality_score_basis + quality_basis_warnings）→ test_merge_findings_v2 扩至 15
+- 修改：`anchor_map.py`（条目14：%PDF- 魔数 → PyMuPDF → draft 页标记 → 显式报错级联，
+  source_extract 留痕；fill 以 id 为键 + 自动 id 防碰撞 + 重复 id exit 1 + dup_quote 标 ambiguous +
+  structural_only 保留 + requests==entries 强制校验）→ test_anchor_map 扩至 21
+- 新增：`build_anchor_requests.py`（条目20：merged → anchor_requests.json；引文抽取/位置四形态/
+  weak/ambiguous/not_in_draft/structural_only/needs_manual_quote；含省略号示意性引文跳过
+  draft 存在性核查防系统性误报）+ test_build_anchor_requests.py（14，含 build→fill 闭环用例）
+- 新增：`validate_report.py`（条目17：合并统计8数/决议三方/质量评分/反查统计↔anchor_map/
+  席位份数与非空/交付副本字节一致+INDEX 行/chain 本轮节；problems 全收集 exit 1）
+  + test_validate_report.py（21，merged 夹具由 merge_findings.py 真跑生成）
+- 文档：SKILL.md（2c 三行固定格式提示词、阶段2 报告口径、3.2a 改调脚本+人工补引文、
+  Step 6 增 6.6 校验步/RESUME 顺延 6.7、脚本清单 +2 行）；templates/final-report.md §2 反查统计行；
+  references/anchor-locator.md 调用时机表；deai-discussion-protocol.md 2c 模板（条目16）；
+  备忘条目 14/15/16/17/20 加「[v2.1 已实施（G2）]」注记
+- 守卫测试 meta 集合同步：EXPECTED_MENTIONED_SCRIPTS +build_anchor_requests/validate_report
+- 测试合计：264 = G1 的 212 + build_anchor_requests 14 + validate_report 21 +
+  merge_findings_v2 新增 7 + anchor_map 新增 10（17 文件全绿）
+
 ## 备忘修订记录
 （条目号 / 修订内容 / 原因）
 
@@ -38,6 +60,12 @@
   采用 expert_reconcile.py zipfile+ElementTree 原生解析 word/document.xml（零第三方依赖，
   与 conversion_audit.py 同一模式），未用 pandoc/python-docx；§10.4 标题、SKILL 用法表、脚本实现
   三处口径统一为 `<md|docx>` / 备忘只列了选项，实施后须记录实际选择与实现方式（G1）
+- 条目 14/15/16/17/20 / 各加「[v2.1 已实施（G2）]」注记块，保留历史原文 /
+  实施事实与备忘有出入处需就地固化：条目17 二选一取 **validate_report.py**（报告生成仍走
+  模板+人工语义归并——生成器无法替代语义归并，校验器即可锁死数字一致）；条目20 仅实现
+  merged_findings.md 单源输入（merged 即合并后唯一权威清单，备选双源无独立价值）；
+  含省略号引文标 weak 并跳过 draft 存在性核查（NFKC 把 … 展开为 ...，示意性片段核查
+  必然误报 not_in_draft——实测夹具触发）（G2）
 
 ## 回流缺陷（来自 paper-reviewer /v21-adopt）
 （编号 / 现象 / 归属组 / 状态 / 提交号）

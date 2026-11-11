@@ -42,8 +42,8 @@
 | 时机 | 动作 |
 |------|------|
 | Step 0 之后 | 用户提供 `--source` 时：`anchor_map.py init` 生成空表；未提供则跳过（报告双轨） |
-| 阶段4 合并时 | 从 merged_findings.md 逐条提取原句引文（≥15字、draft 内唯一），写 `anchor_requests.json`，执行 `anchor_map.py fill` 填充 |
-| Step 6 报告 | 问题表增加「源位置」列（三轨并列），报告头部注明各轨含义与漂移特性 |
+| 阶段3 合并时 | `build_anchor_requests.py` 从 merged_findings.md 自动生成 `anchor_requests.json`（引文 <15字/含省略号/不唯一/未命中项进 needs_manual_quote 待人工补引文清单，不得静默丢弃），再执行 `anchor_map.py fill` 填充（requests 数==entries 数由脚本强制校验，违反 exit 1） |
+| Step 6 报告 | 问题表增加「源位置」列（三轨并列），报告头部注明各轨含义与漂移特性；§2 写「反查统计」行（validate_report.py 与 anchor_map.json 机器核对） |
 
 ## 可选增强（非必须）
 

@@ -9,6 +9,11 @@
           not_found（宏展开改变表面文字 → 回退结构坐标）
           draft_line 缺省时从 draft 反查
   - pdf 页标记 %% [PDF p.N] 与旧式 --- Page N --- 双格式切分
+  - v2.1 条目14：id 为键（同 quote 多条不互相覆盖、重复 id 显式 fail、
+    auto id 不碰撞）；无 quote → structural_only 保留；二进制 PDF 按
+    %PDF- 魔数识别（PyMuPDF 提取 / draft 页标记回退 / 显式报错，
+    绝不 gbk 乱码「成功」）；source_extract 留痕；首次 fill
+    requests==entries 完整性校验
 
 运行：python tests/test_paper_review/test_anchor_map.py
 """
@@ -284,6 +289,219 @@ References list here.
         e = data["entries"][0]
         self.assertEqual(e["status"], "not_found")
         self.assertIsNone(e["source_loc"])
+
+    def test_source_extract_text_file_recorded(self):
+        """条目14：提取方式留痕 source_extract（该夹具双格式标记都会切分页单元）"""
+        js, data = self.fill("the proposed method in detail")
+        self.assertEqual(js["source_extract"]["method"], "text_file")
+        self.assertEqual(data["source_extract"]["method"], "text_file")
+        self.assertEqual(js["source_extract"]["pages"],
+                         data["source_extract"]["pages"])
+        self.assertGreaterEqual(data["source_extract"]["pages"], 3)
+
+
+class TestFillIntegrity(unittest.TestCase):
+    """v2.1 条目14：id 为键、重复 quote 保留、structural_only、完整性校验"""
+
+    TEX = "\\begin{document}\n重复句式出现在这里，用于同段两条发现测试。\n\\end{document}\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+        self.review = os.path.join(self.dir, ".review")
+        self.src = os.path.join(self.dir, "main.tex")
+        with open(self.src, "w", encoding="utf-8") as f:
+            f.write(self.TEX)
+        code, js, err = run(["--review-dir", self.review, "init",
+                             "--source", self.src, "--format", "tex"])
+        self.assertEqual(code, 0, err)
+
+    def fill_raw(self, requests):
+        """不假设成功：返回 (code, js|None, err)"""
+        req_path = os.path.join(self.dir, "req.json")
+        with open(req_path, "w", encoding="utf-8") as f:
+            json.dump(requests, f, ensure_ascii=False)
+        return run(["--review-dir", self.review, "fill", "--requests", req_path])
+
+    def data(self):
+        with open(os.path.join(self.review, "anchor_map.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_same_quote_two_requests_both_kept(self):
+        """同一段落的两条发现（同 quote 不同 id）不得互相覆盖（78→70 教训）"""
+        q = "重复句式出现在这里，用于同段两条发现测试"
+        code, js, err = self.fill_raw([
+            {"id": "R-1", "quote": q, "structural": "§2 表1"},
+            {"id": "D-2", "quote": q, "structural": "§2 语言级"},
+        ])
+        self.assertEqual(code, 0, err)
+        data = self.data()
+        self.assertEqual(len(data["entries"]), 2)
+        ids = sorted(e["id"] for e in data["entries"])
+        self.assertEqual(ids, ["D-2", "R-1"])
+        for e in data["entries"]:
+            self.assertTrue(e["ambiguous"], "重复 quote 必须标 ambiguous")
+            self.assertTrue(e["dup_quote"])
+        self.assertEqual(js["entries_total"], 2)
+
+    def test_duplicate_request_id_fails(self):
+        """requests 内 id 重复 → exit 1 显式报错，而非静默覆盖"""
+        code, js, err = self.fill_raw([
+            {"id": "R-1", "quote": "重复句式出现在这里"},
+            {"id": "R-1", "quote": "用于同段两条发现测试"},
+        ])
+        self.assertEqual(code, 1)
+        self.assertIsNone(js)
+        self.assertIn("id 重复", err)
+
+    def test_no_quote_kept_as_structural_only(self):
+        """无 quote 的请求保留为 structural_only 条目，不静默丢弃"""
+        code, js, err = self.fill_raw([
+            {"id": "R-9", "structural": "§7 结论段（跨节问题，无单句引文）"},
+        ])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(js["structural_only"], 1)
+        self.assertEqual(js["processed"], 0)
+        e = self.data()["entries"][0]
+        self.assertEqual(e["id"], "R-9")
+        self.assertEqual(e["status"], "structural_only")
+        self.assertEqual(e["structural"], "§7 结论段（跨节问题，无单句引文）")
+        self.assertEqual(js["entries_total"], 1)
+
+    def test_auto_ids_unique_and_no_collision(self):
+        """缺 id 请求自动生成唯一 a#，且不与既有显式 id 碰撞"""
+        code, js, err = self.fill_raw([
+            {"id": "a1", "quote": "重复句式出现在这里"},
+            {"quote": "用于同段两条发现测试"},
+            {"quote": "\\begin{document}"},
+        ])
+        self.assertEqual(code, 0, err)
+        ids = [e["id"] for e in self.data()["entries"]]
+        self.assertEqual(len(ids), len(set(ids)), "auto id 碰撞: %s" % ids)
+        self.assertIn("a1", ids)
+        self.assertEqual(js["entries_total"], 3)
+
+    def test_refill_same_requests_idempotent(self):
+        """同一 requests 重跑：按 id 覆盖，entries 不翻倍"""
+        reqs = [{"id": "R-1", "quote": "重复句式出现在这里"}]
+        code, js, err = self.fill_raw(reqs)
+        self.assertEqual(code, 0, err)
+        code, js, err = self.fill_raw(reqs)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.data()["entries"]), 1)
+        self.assertEqual(js["entries_total"], 1)
+
+
+class TestBinaryPdf(unittest.TestCase):
+    """v2.1 条目14：%PDF- 魔数识别——提取 / 回退 / 显式报错，绝不乱码「成功」"""
+
+    JUNK = b"%PDF-1.4\n\xff\xfe\x00\x01garbage-not-a-real-pdf\x00\n%%EOF\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+        self.review = os.path.join(self.dir, ".review")
+        self.src = os.path.join(self.dir, "paper.pdf")
+        with open(self.src, "wb") as f:
+            f.write(self.JUNK)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _init(self, draft=None):
+        args = ["--review-dir", self.review, "init",
+                "--source", self.src, "--format", "pdf"]
+        if draft:
+            args += ["--draft", draft]
+        code, js, err = run(args)
+        self.assertEqual(code, 0, err)
+
+    def _fill(self, quote):
+        req = os.path.join(self.dir, "req.json")
+        with open(req, "w", encoding="utf-8") as f:
+            json.dump([{"id": "b1", "quote": quote}], f, ensure_ascii=False)
+        return run(["--review-dir", self.review, "fill", "--requests", req])
+
+    def test_binary_pdf_no_fallback_explicit_error(self):
+        """坏 PDF 且无 draft 页标记可回退 → exit 1 显式报错（而非全 not_found）"""
+        self._init()
+        code, js, err = self._fill("any quote at all")
+        self.assertEqual(code, 1)
+        self.assertIsNone(js)
+        self.assertIn("二进制 PDF", err)
+
+    def test_binary_pdf_draft_marker_fallback(self):
+        """坏 PDF 但 draft 带 %% [PDF p.N] 页标记 → 回退 draft 切分并留痕"""
+        draft = os.path.join(self.dir, "draft.md")
+        with open(draft, "w", encoding="utf-8") as f:
+            f.write("# 草稿\n\n%% [PDF p.1]\nfirst page content\n\n"
+                    "%% [PDF p.2]\nsecond page unique sentence here\n")
+        self._init(draft=draft)
+        code, js, err = self._fill("second page unique sentence")
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(self.review, "anchor_map.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual(data["entries"][0]["status"], "resolved")
+        self.assertEqual(data["entries"][0]["source_loc"], "p.2")
+        self.assertEqual(data["source_extract"]["method"], "draft_page_markers")
+        self.assertEqual(js["source_extract"]["pages"], 2)
+
+    def test_gbk_decodable_binary_never_read_as_text(self):
+        """可被 gbk「成功」解码的二进制也不得按文本处理（魔数优先）"""
+        # 构造 gbk 可解码的假 PDF 头 + 乱码体
+        junk = "%PDF-1.4\n".encode("gbk") + "中文乱码体".encode("gbk")
+        with open(self.src, "wb") as f:
+            f.write(junk)
+        self._init()
+        code, js, err = self._fill("中文乱码体")
+        # 若按文本读取，quote 会「命中」乱码；魔数识别后必须走提取/回退/报错路径
+        self.assertEqual(code, 1)
+        self.assertIn("二进制 PDF", err)
+
+
+try:
+    import fitz as _fitz  # noqa: F401
+    _HAS_PYMUPDF = True
+except ImportError:
+    try:
+        import pymupdf as _fitz  # noqa: F401
+        _HAS_PYMUPDF = True
+    except ImportError:
+        _fitz = None
+        _HAS_PYMUPDF = False
+
+
+@unittest.skipUnless(_HAS_PYMUPDF, "PyMuPDF 不可用")
+class TestRealPdfPyMuPDF(unittest.TestCase):
+    """真 PDF：PyMuPDF 逐页提取，source_extract=pymupdf"""
+
+    def test_real_pdf_resolved(self):
+        tmp = tempfile.TemporaryDirectory()
+        d = tmp.name
+        review = os.path.join(d, ".review")
+        src = os.path.join(d, "real.pdf")
+        doc = _fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Digital twin simulation for training ranges.")
+        page2 = doc.new_page()
+        page2.insert_text((72, 72), "Second page has the proposed method details.")
+        doc.save(src)
+        doc.close()
+        code, js, err = run(["--review-dir", review, "init",
+                             "--source", src, "--format", "pdf"])
+        self.assertEqual(code, 0, err)
+        req = os.path.join(d, "req.json")
+        with open(req, "w", encoding="utf-8") as f:
+            json.dump([{"id": "q1", "quote": "the proposed method details"}], f)
+        code, js, err = run(["--review-dir", review, "fill", "--requests", req])
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(review, "anchor_map.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual(data["entries"][0]["status"], "resolved")
+        self.assertEqual(data["entries"][0]["source_loc"], "p.2")
+        self.assertEqual(data["source_extract"]["method"], "pymupdf")
+        self.assertEqual(data["source_extract"]["pages"], 2)
+        tmp.cleanup()
 
 
 class TestFillPdfLegacyMarker(unittest.TestCase):

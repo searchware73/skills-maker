@@ -335,7 +335,10 @@ await agent([
   `1. ${A.run_dir}deai_confirmed.md，严格按列名`,
   `   | ID | 位置 | 问题 | 建议 | 支持技能 | 严重度 | 重叠标记 |，ID 前缀 D- 连续；`,
   `   与阶段1 P0/P1 同源的声称问题在「重叠标记」列填对应 R-#（合并时以阶段1为准，不重复计入）；`,
-  `   表后一行「质量评分: N/50」（50−语言级×2−声称级×5−结构级×3，下限0，构成注明）。`,
+  `   表后三行固定格式：「确认总数 confirmed_total: N（语言级 a / 声称级 b / 结构级 c）」、`,
+  `   「计分总数 scored_total: M（重叠 k 项不重复计入）」、「质量评分: N/50」`,
+  `   （50−语言级×2−声称级×5−结构级×3，只按 scored_total 口径计，下限0，构成注明；`,
+  `   merge_findings.py 会复核双口径，声明与表格不符即告警）。`,
   `2. ${A.run_dir}deai_exempt.md：被排除候选+排除理由+裁定依据（误报拦截留痕，复审继承）。`,
   `列名不得更改（merge_findings.py 按此解析）。`,
 ].join("\n"), { label: "主持人-终裁", phase: "交叉质询与终裁" });
@@ -344,8 +347,9 @@ await agent([
 **验证**：`deai_confirmed.md` 与 `deai_exempt.md` 存在且 confirmed 含 D-# ID 与
 质量评分行；缺失则重跑终裁代理（≤3次），仍失败降级为主上下文单实例按协议执行并告知用户。
 --quick 时：跳过阶段2（报告注明未做去AI审查）。
-阶段2 完成后：更新 RESUME；向用户报告：确认清单条数（语言级/声称级/重叠）、
-豁免拦截数、质量评分。**本阶段未修改稿件。**
+阶段2 完成后：更新 RESUME；向用户报告：确认总数 confirmed_total（语言级/声称级/
+重叠打标）、计分总数 scored_total（重叠不重复计入）、豁免拦截数、质量评分
+（scored_total 口径，merge_findings.py 复核）。**本阶段未修改稿件。**
 
 ### 阶段3 — 发现合并与最终清单
 
@@ -360,10 +364,13 @@ await agent([
   4. 去AI与内容重叠项以阶段1为准（S-# 交叉引用只核对，不再拆分）
 
 3.2 三轨定位填充（存在 anchor_map.json 时）：
-- a. 从 merged_findings.md 逐条提取原句引文（≥15字且唯一），用 **Write** 写
-  `{run_dir}anchor_requests.json`：`[{"id": "R-1", "quote": "…", "draft_line": N, "structural": "§X.Y 表N"}, …]`
+- a. 执行：`Bash("python {SKILL_DIR}/scripts/build_anchor_requests.py --run-dir {run_dir} --merged {run_dir}merged_findings.md --draft {file_path} --output {run_dir}anchor_requests.json")`
+  - 解析 stdout JSON（stats/needs_manual_quote）；`needs_manual_quote` 逐项**人工补引文**：
+    Read draft 对应位置摘 ≥15 字连续原句，Edit anchor_requests.json 后重跑本步
+    （weak/ambiguous/not_in_draft/无引文项都不得静默丢弃）
 - b. 执行：`Bash("python {SKILL_DIR}/scripts/anchor_map.py --review-dir {run_dir} fill --requests {run_dir}anchor_requests.json")`
-- c. **验证**：success==true；ambiguous/not_found 不是错误——按 anchor-locator.md
+- c. **验证**：success==true 且 entries_total==请求数（脚本强制，条目静默丢失即
+  exit 1）；ambiguous/not_found 不是错误——按 anchor-locator.md
   回退结构坐标，Step 6 报告如实标注
 
 3.3 专家对账收尾（--expert-comments 时）：执行 expert_reconcile.py `match`，
@@ -438,7 +445,15 @@ await agent([
 6.5 chain.md 更新：按 `templates/chain.md` 在 `{review_dir}chain.md` 追加本轮一节
 （决议/评分轨迹/发现状态流转/裁决项/Integrity 进展）。
 
-6.6 RESUME 收尾：`resume.py --run-dir {review_dir} set --stage step6-report --status done`
+6.6 交付前机器校验（v2.1 条目17，计数不得靠人工同步）：执行：`Bash("python {SKILL_DIR}/scripts/validate_report.py --run-dir {run_dir} --paper-dir {paper_dir} --round {round} --seats <预期席位数> [--re-review]")`
+- 逐项核对：报告合并统计/决议/质量评分 ↔ merged_findings.md；反查统计 ↔
+  anchor_map.json；seat_reports/ 份数与非空；交付副本字节一致 + INDEX.md 行；
+  chain.md 本轮节
+- **验证**：success==true；problems 非空 → 逐条按提示修复（报告数字错改报告、
+  副本过期重做 6.4）后重跑，全部通过才进入 6.7，**不得带着不一致交付**
+- 本轮发生过席位补派：先重跑 1d 与 merge_findings.py 重算，再执行本校验
+
+6.7 RESUME 收尾：`resume.py --run-dir {review_dir} set --stage step6-report --status done`
 + `check` 通过。
 
 ---
@@ -471,7 +486,8 @@ await agent([
 | setup_env.py | 校验/章节定位/版本轮次路由/config.json（layout=flat-v2.1）/doctype 绑定/v1 二选一检测/覆盖护栏/成本预估/非 md 输入分派指引/根 INDEX.md 创建 | Step 0 |
 | resume.py | RESUME.md 续跑快照 init/set/next/show/check | 各阶段边界 |
 | conversion_audit.py | 源侧 vs draft 结构计数，转换丢失清单 | Step 0 |
-| anchor_map.py | 三轨定位表 init/fill | Step 0 / 阶段3 |
+| anchor_map.py | 三轨定位表 init/fill（fill 以 id 为键、requests==entries 强制校验、二进制 PDF 走 PyMuPDF/页标记并留痕 source_extract） | Step 0 / 阶段3 |
+| build_anchor_requests.py | 从 merged_findings.md 自动构建 anchor_requests.json：引文抽取（「」/“”最长片段）、位置解析（L\d+/行N/§X.Y/表N）、weak/ambiguous/not_in_draft/structural_only 标注、needs_manual_quote 待补清单（不静默丢弃） | 阶段3 |
 | bib_lint.py | GB/T 7714 引文格式确定性检查 | Step 0 |
 | diff_scope.py | v(N-1)→vN 变更区域定位 | Step 0（复审） |
 | numeric_checks/ | S7 数值检查库（weighted_identity/table_sums/abstract_numbers/percent_basis） | 阶段1（S7） |
@@ -479,6 +495,7 @@ await agent([
 | merge_findings.py | v2 双权威清单合并（R-#/D-#/S-#，撤回不复活）；--review-dir 走 v1 兼容模式 | 阶段3 |
 | track_revisions.py | 修改日志逐条 log / summary | 阶段4/5 |
 | convergence_check.py | 收敛/停滞判定 | 阶段5 |
+| validate_report.py | final_report.md 交付前机器校验：合并统计/决议/质量评分/反查统计/席位报告数/交付副本字节一致与 INDEX 行/chain 本轮节，任一不符 exit 1 | Step 6 |
 | migrate_rounds.py | 存量「另建目录」轮次形态迁移，就地规范化为 v2.1 扁平口径（dry-run/--confirm） | 按需 |
 | migrate_layout.py | 存量 `papers/`+`output/` 工作空间 → v2.1 每篇论文一目录（dry-run/apply/rollback；幂等；人工判定项只列 report 不猜测） | 按需 |
 | deai_audit.py | （v1 遗留）串行去AI日志；v2.0 流程不再使用，仅旧产物兼容 | — |

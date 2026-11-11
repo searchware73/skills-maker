@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 2026-11-11 — paper-review v2.1.0（进行中 · G1 规范先行）
+## 2026-11-11 — paper-review v2.1.0（进行中 · G1–G2 已交付）
 
 > v2.1 按 `docs/handoff-20261108-paper-review-v2.md` §十一 分 G1–G4 四组实施，
 > 本节随各组追加；SKILL.md frontmatter 版本号在 Step 5 发版时升为 2.1.0。
@@ -44,6 +44,42 @@
   判定项进 report/合成冲突场景，24 例）。
 - 测试：`tests/test_paper_review/` 15 文件 212 用例全绿；G1 验证命令通过
   （夹具 dry-run：5 类待确认项、26 moves、5 rewrites、零文件改动）。
+
+### G2 条目不静默丢失与计数自洽（条目 15/14/20/16/17）
+
+- **merge_findings.py 完整性（条目 15，用户可见）**：`_v2_table_rows()` 表格中间的手工空行/
+  散文行不再截断解析，收集同节全部表格（重复表头行自动跳过）；合并后校验「roadmap 声明的
+  R-ID 集合 ⊆ 合并清单∪撤回记录」，缺失即 exit 1 列出 ID 且**不写半成品输出**
+  （回归实测缺陷：空行曾致 R-40~R-45 静默丢失而 sources_missing 仍为空）。
+- **去AI双口径计分（条目 16，用户可见）**：deai_confirmed.md 表后固定三行
+  `确认总数 confirmed_total: N（…）` / `计分总数 scored_total: M（重叠 k 项不重复计入）` /
+  `质量评分: N/50`；质量分只按 scored_total 口径计（与阶段1 重叠项不得二次扣分）；
+  merge_findings.py 复核双口径并输出 `deai_confirmed_total`/`deai_scored_total`/
+  `quality_score_basis`，声明与表格不符 stderr 告警 + `quality_basis_warnings`（不中断）；
+  deai-discussion-protocol.md 2c 模板与 SKILL 2c 提示词同步。
+- **anchor_map.py 二进制 PDF 与 fill 完整性（条目 14，用户可见）**：按 `%PDF-` 魔数判定
+  二进制 PDF → PyMuPDF 提取（lazy import fitz/pymupdf）→ 回退 draft `%% [PDF p.N]` 页标记 →
+  均失败**显式报错**，绝不再 gbk 解码乱码假装成功；`source_extract`（method/pages）留痕于
+  anchor_map.json 与 fill 输出。fill 一律以 id 为键（自动 id 防碰撞），重复请求 id exit 1；
+  同段重复 quote 多条保留标 `ambiguous`+`dup_quote`；无引文请求保留为 `structural_only`
+  条目；fill 后强制校验 `requests 数 == entries 数`，条目静默丢失即 exit 1。
+- **新增 scripts/build_anchor_requests.py（条目 20，用户可见）**：从 merged_findings.md
+  自动构建 anchor_requests.json，取代 3.2a 手写 Write——引文抽取（「」/『』/“”/"" 最长片段）、
+  位置四形态解析（`L\d+`/`行N`→draft_line；`§X.Y`/`表N`/`式N`→structural）；引文 <15 字或
+  含省略号（示意性片段）标 `weak`、draft 多处命中标 `ambiguous`、未命中标 `not_in_draft`、
+  无行号标 `structural_only`，全部进 `needs_manual_quote` 待人工补引文清单（**不静默丢弃**）；
+  draft 唯一命中自动回填 draft_line；S-# 交叉引用行不重复生成、跨表 id 去重；与条目 14 的
+  fill 校验串成闭环。
+- **新增 scripts/validate_report.py（条目 17，用户可见；备忘二选一取校验器方案）**：
+  final_report.md 交付前机器校验——合并统计 8 数/决议（报告↔merged↔roadmap 三方）/质量评分
+  ↔ merged_findings.md；反查统计 ↔ anchor_map.json entries 计数；seat_reports/ 份数与非空
+  （`--seats`）；交付副本字节一致 + INDEX.md 行；chain.md 本轮节。收集全部 problems 后
+  exit 1，**不得带着不一致交付**（回归实测缺陷：7→9 P0、39→47 项中间态靠人工发现）。
+  SKILL Step 6 增 6.6 校验步（RESUME 收尾顺延 6.7），补派席位后先重跑 1d+merge_findings
+  再校验；templates/final-report.md §2 增「反查统计」行；anchor-locator.md 调用时机表同步。
+- 测试：新增 test_build_anchor_requests.py（14）、test_validate_report.py（21），
+  test_anchor_map.py 扩至 21、test_merge_findings_v2.py 扩至 15；
+  `tests/test_paper_review/` 17 文件 264 用例全绿。
 
 ## 2026-11-09 — paper-review v2.0.1（阶段5 评审复查调用修正）
 

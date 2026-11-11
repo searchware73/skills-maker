@@ -503,20 +503,36 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
    - `do_fill()` 以 `id` 或 `quote` 为键；新 id 的条目用 quote 作键，同一段落的多条发现会互相覆盖
      （实测 78 条请求只落 70 条）。应始终以 `id` 为键；重复 quote 保留多条并标 ambiguous；
      fill 后校验 `requests 数 == entries 数`，不等即报错。
+   > **[v2.1 已实施（G2）]**：`%PDF-` 魔数判二进制 PDF → PyMuPDF 提取 → 回退 draft `%% [PDF p.N]`
+   > 页标记 → 均失败**显式报错**（绝不再 gbk 乱码「成功」）；`source_extract`（method ∈
+   > pymupdf/draft_page_markers/text_file + pages）留痕。fill 一律以 id 为键（自动 id 防碰撞），
+   > 重复 id exit 1；重复 quote 多条保留标 ambiguous+dup_quote；无引文请求保留为 structural_only
+   > 条目；fill 后 requests≠entries 即 exit 1。
 15. **merge_findings 的表格空行截断导致条目静默丢失**：
    `_v2_table_rows()` 从标题后找第一个表格，遇到空行即停止。若在表格中间插入空行（手工补条目时极易发生），
    后续行会被静默丢弃；实测 R-40～R-45 未进入 merged（P0 7→9、内容 41→47 未反映），
    而 `sources_missing` 仍为空。应跳过空行直到下一个标题，或解析该节全部表格；合并后校验
    roadmap 的 R-ID 集合 ⊆ merged，缺失即 fail 并列出 ID，不得只报文件级 `sources_missing`。
+   > **[v2.1 已实施（G2）]**：`_v2_table_rows()` 空行/散文行不再截断，收集本节全部表格
+   > （重复表头行跳过）；roadmap 声明 R-ID ⊄ 合并清单∪撤回记录 → exit 1 列出 ID，
+   > **不写半成品输出**。
 16. **去AI质量评分与重叠项口径不一致**：
    `deai_confirmed.md` 的「质量评分」把与阶段1 重叠的语言项也计入扣分（实测 31 条，合并实际保留 26 条），
    与协议「重叠不重复计入」矛盾。2c 应分别报告 `confirmed_total` 与 `scored_total`，按 `scored_total`
    计算质量分；`merge_findings.py` 输出 `quality_score` 时复核同一口径。
+   > **[v2.1 已实施（G2）]**：2c 表后固定三行——「确认总数 confirmed_total: N（语言级 a / 声称级 b /
+   > 结构级 c）」「计分总数 scored_total: M（重叠 k 项不重复计入）」「质量评分: N/50」；
+   > merge_findings.py 复核双口径（deai_confirmed_total / deai_scored_total / quality_score_basis），
+   > 声明与表格不符 → stderr 告警 + quality_basis_warnings，不中断。
 17. **Step 6 报告与计数一致性校验**：
    `final_report.md` 目前手工生成，P0/P1/P2、交叉引用、席位完整性、anchor resolved 数需人工同步；
    于小岚稿实测出现 7→9 P0、39→47 项、75→81 项的中间态，均靠人工发现。v2.1 增加
    `scripts/build_final_report.py` 或 `validate_report.py`：从 merged/roadmap/chain 读取并核对
    总数、每席报告数、anchor resolved 数、报告副本路径；不一致即 fail。补派席位后自动触发 1d 重算与校验。
+   > **[v2.1 已实施（G2，二选一取 validate_report.py）]**：报告生成仍走模板+人工语义归并，校验器
+   > 只管数字一致——合并统计 8 数/决议（报告↔merged↔roadmap 三方）/质量评分/反查统计↔anchor_map.json、
+   > seat_reports 份数与非空（--seats）、交付副本字节一致+INDEX 行、chain.md 本轮节；收集全部问题
+   > exit 1。SKILL Step 6 增 6.6 校验步（RESUME 顺延 6.7）；补派后先重跑 1d+merge_findings 再校验。
 18. **Workflow 劫持防护扩展到阶段2**（第 11 条补充）：
    harness 的 triggering request 注入对所有 Workflow 生效，阶段2 四技能审计同样可能被无关提问劫持。
    完整性门禁应同时覆盖 `seat_reports/`（N 席）与 `deai_audits/`（4 份），均校验非空与预期路径；
@@ -537,6 +553,10 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
      不得静默丢弃；无行号项（跨节/文末）显式标 `structural_only`；
    - 输出 `{run_dir}anchor_requests.json` + 统计（total/with_quote/without_quote），
      与第 14 条的 fill 校验（requests 数 == entries 数）串成闭环。
+   > **[v2.1 已实施（G2，仅 merged_findings.md 单源输入）]**：merged 即合并后唯一权威清单
+   > （roadmap/deai_confirmed 均已入表），备选双源未实现；含省略号的引文（示意性片段非连续
+   > 原句）标 weak 并跳过 draft 存在性核查（NFKC 把 … 变 ...，核查必然误报 not_in_draft）；
+   > SKILL 3.2a 已改为调用脚本 + needs_manual_quote 人工补引文，不再手写 Write。
 21. **专家意见 docx 支持：规格与实现不一致**（仿真稿 2026-11-09 实测）：
    §10.4 标题写 `--expert-comments <md|docx>`，但 `expert_reconcile.py` 用 `read_text_file()`
    只按 utf-8-sig/utf-8/gbk 读文本，docx 直接失败；SKILL 用法表则写「md/提取文本」。

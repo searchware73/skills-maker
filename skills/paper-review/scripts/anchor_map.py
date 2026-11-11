@@ -11,7 +11,16 @@
 机制：将发现的原句引文（≥15字）在源文件中做归一化文本反查：
   - tex  ：逐行匹配（去注释/去命令/去花括号后比较；源可为目录，遍历 *.tex）
   - docx ：按段落序匹配（zipfile+XML 解析 word/document.xml，无第三方依赖）
-  - pdf  ：按页标记切分提取文本，页内匹配
+  - pdf  ：按页标记切分提取文本，页内匹配；源为**二进制 PDF**（%PDF- 魔数）时
+           优先 PyMuPDF 逐页提取，失败则回退 draft 内 %% [PDF p.N] 页标记，
+           实际采用方式写入 anchor_map.json 的 source_extract（v2.1 条目14；
+           两条路都不通时显式报错——绝不允许按 gbk「成功」解码出乱码后全 not_found）
+
+fill 契约（v2.1 条目14）：entries 一律以 **id 为键**（缺 id 自动生成不碰撞的 a#），
+同一 quote 的多条请求各保留一条 entry 并标 ambiguous；无 quote 的请求保留为
+status=structural_only（回退结构坐标，不静默丢弃）；fill 后校验
+「requests 数 == entries 数」（首次填充）且每条 request 的 id 都在 entries 中，
+不满足即 exit 1（实测 78 条请求只落 70 条的静默丢失教训）。
 
 用法：
   # Step 0 之后生成空表
@@ -22,7 +31,9 @@
   python anchor_map.py fill --requests anchor_requests.json [--review-dir DIR]
 
 输出文件：{review_dir}/anchor_map.json
-  {"format": "tex", "source": "...", "draft": "...", "entries": [
+  {"format": "tex", "source": "...", "draft": "...",
+   "source_extract": {"method": "pymupdf|draft_page_markers|text_file", "pages": N},
+   "entries": [
      {"id": "a1", "quote": "...", "draft_line": 42, "source_loc": "main.tex:88",
       "structural": "§2.1 表1", "status": "resolved", "ambiguous": false}, ...]}
 
@@ -32,9 +43,10 @@
 stdout（JSON）：
   init → {"success": true, "action": "init", "anchor_map": "...", "format": "tex", ...}
   fill → {"success": true, "action": "fill", "processed": N, "resolved": N,
-          "ambiguous": N, "not_found": N, "anchor_map": "..."}
+          "ambiguous": N, "not_found": N, "structural_only": N,
+          "entries_total": N, "source_extract": {...}, "anchor_map": "..."}
 
-退出码：0=成功；1=文件读写失败；2=参数错误。
+退出码：0=成功；1=文件读写/完整性校验失败；2=参数错误。
 """
 import argparse
 import glob
@@ -154,11 +166,8 @@ def docx_units(source):
     return units
 
 
-def pdf_units(source):
-    """pdf 提取文本 → [("p.N", page_text), ...]，按 %% [PDF p.N] / --- Page N --- 标记切分"""
-    content = _read_text(source)
-    if content is None:
-        raise ValueError("无法读取 pdf 提取文本: %s" % source)
+def _split_page_markers(content):
+    """按 %% [PDF p.N] / --- Page N --- 页标记切分文本 → [("p.N", page_text), ...]"""
     units, cur_no, cur = [], None, []
     for line in content.splitlines():
         page_no = None
@@ -178,13 +187,79 @@ def pdf_units(source):
     return units
 
 
-def build_units(source, fmt):
+def is_binary_pdf(path):
+    """%PDF- 魔数判二进制（条目14：禁止对二进制按 gbk「成功」解码出乱码）"""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(1024)
+    except OSError:
+        return False
+    return head.lstrip(b"\xef\xbb\xbf \r\n\t").startswith(b"%PDF-")
+
+
+def _pymupdf_page_texts(path):
+    """PyMuPDF 逐页提取 → [page_text, ...]；不可用/打不开时抛 ValueError（带原因）"""
+    try:
+        try:
+            import fitz
+        except ImportError:
+            import pymupdf as fitz
+    except ImportError:
+        raise ValueError("PyMuPDF 不可用（pip install pymupdf）")
+    try:
+        doc = fitz.open(path)
+    except Exception as e:
+        raise ValueError("PyMuPDF 打开失败: %s" % e)
+    try:
+        return [page.get_text() for page in doc]
+    finally:
+        doc.close()
+
+
+def pdf_units(source, draft=None):
+    """pdf 源 → ([("p.N", page_text), ...], source_extract)。
+
+    源为二进制 PDF 时：优先 PyMuPDF 逐页提取；失败回退 draft 的
+    %% [PDF p.N] 页标记（Step 0.0 提取产物）；两条路都不通 → ValueError
+    显式报错（而非静默全 not_found）。源为提取文本时按页标记切分。
+    """
+    if is_binary_pdf(source):
+        try:
+            pages = _pymupdf_page_texts(source)
+            if not pages:
+                raise ValueError("PyMuPDF 提取到 0 页")
+            units = [("p.%d" % (i + 1), t) for i, t in enumerate(pages)]
+            return units, {"method": "pymupdf", "pages": len(units)}
+        except ValueError as e:
+            reason = str(e)
+        if draft and os.path.isfile(draft):
+            content = _read_text(draft)
+            if content is not None:
+                units = _split_page_markers(content)
+                if units:
+                    return units, {"method": "draft_page_markers",
+                                   "draft": to_posix(os.path.abspath(draft)),
+                                   "pages": len(units)}
+                reason += "；draft 中也无 %% [PDF p.N] 页标记"
+        raise ValueError(
+            "源为二进制 PDF 且无法提取文本（%s）。请先按 SKILL Step 0.0 用 "
+            "PyMuPDF 生成带 %% [PDF p.N] 页标记的提取文本并以 --draft 提供回退，"
+            "或将 anchor_map 的 source 指向该提取文本" % reason)
+    content = _read_text(source)
+    if content is None:
+        raise ValueError("无法读取 pdf 提取文本: %s" % source)
+    units = _split_page_markers(content)
+    return units, {"method": "text_file", "pages": len(units)}
+
+
+def build_units(source, fmt, draft=None):
+    """→ (units, source_extract)；tex/docx 的 source_extract 为 None"""
     if fmt == "tex":
-        return tex_units(source)
+        return tex_units(source), None
     if fmt == "docx":
-        return docx_units(source)
+        return docx_units(source), None
     if fmt == "pdf":
-        return pdf_units(source)
+        return pdf_units(source, draft=draft)
     raise ValueError("未知格式: %s" % fmt)
 
 
@@ -301,39 +376,101 @@ def do_fill(args):
     fmt = data.get("format")
     source = data.get("source")
     try:
-        units = build_units(source, fmt)
+        units, extract_info = build_units(source, fmt, draft=data.get("draft"))
     except ValueError as e:
         fail(str(e), code=1)
+    if extract_info:
+        data["source_extract"] = extract_info   # 条目14：提取方式留痕
 
     dlines = draft_lines_of(data["draft"]) if data.get("draft") else None
 
-    existing = {e.get("id") or e.get("quote"): e for e in data["entries"]}
-    stats = {"resolved": 0, "ambiguous": 0, "not_found": 0}
+    # 条目14：entries 一律以 id 为键（同段多条发现不再互相覆盖——
+    # 旧实现 quote 作键导致 78 条请求只落 70 条）
+    entries = data.get("entries") or []
+    n_before = len(entries)
+    index = {}
+    for pos, e in enumerate(entries):
+        key = e.get("id") or e.get("quote")
+        if key is not None and key not in index:
+            index[key] = pos
+    used_ids = set(e.get("id") for e in entries if e.get("id"))
+
+    def _auto_id():
+        k = len(used_ids)
+        while True:
+            k += 1
+            nid = "a%d" % k
+            if nid not in used_ids:
+                return nid
+
+    # 同一 quote 的多条请求：各保留 entry，统一标 ambiguous（源侧多处命中同判）
+    quote_counts = {}
+    for r in requests:
+        q = (r.get("quote") or "").strip()
+        if q:
+            quote_counts[q] = quote_counts.get(q, 0) + 1
+
+    stats = {"resolved": 0, "ambiguous": 0, "not_found": 0, "structural_only": 0}
     processed = 0
+    seen_ids = set()
+    resolved_req_ids = []
     for i, r in enumerate(requests, 1):
+        rid = r.get("id")
+        if rid:
+            if rid in seen_ids:
+                fail("requests 第%d条 id 重复：%s——id 必须唯一，否则条目互相覆盖"
+                     "（条目14 完整性校验）" % (i, rid), code=1)
+        else:
+            rid = _auto_id()
+        seen_ids.add(rid)
+        resolved_req_ids.append(rid)
         quote = (r.get("quote") or "").strip()
-        if not quote:
-            print("警告：第%d条 request 缺少 quote，跳过" % i, file=sys.stderr)
-            continue
-        processed += 1
-        src_loc, status, hits = locate(quote, units, fmt)
         draft_line = r.get("draft_line")
-        if draft_line is None and dlines:
-            draft_line = find_draft_line(quote, dlines)
-        entry = {
-            "id": r.get("id") or "a%d" % len(existing),
-            "quote": quote,
-            "draft_line": draft_line,
-            "source_loc": src_loc,               # 反查失败/歧义时为 null
-            "structural": r.get("structural") or "",
-            "status": status,
-            "ambiguous": status == "ambiguous",
-            "hits": hits,
-        }
-        stats[status] += 1
-        key = entry["id"] if entry["id"] in existing else quote
-        existing[key] = entry
-    data["entries"] = list(existing.values())
+        if not quote:
+            # 无引文可反查：保留条目、回退结构坐标，不静默丢弃
+            entry = {
+                "id": rid, "quote": "", "draft_line": draft_line,
+                "source_loc": None, "structural": r.get("structural") or "",
+                "status": "structural_only", "ambiguous": False, "hits": 0,
+            }
+            stats["structural_only"] += 1
+        else:
+            processed += 1
+            src_loc, status, hits = locate(quote, units, fmt)
+            if draft_line is None and dlines:
+                draft_line = find_draft_line(quote, dlines)
+            dup = quote_counts[quote] > 1
+            entry = {
+                "id": rid,
+                "quote": quote,
+                "draft_line": draft_line,
+                "source_loc": src_loc,           # 反查失败/歧义时为 null
+                "structural": r.get("structural") or "",
+                "status": status,
+                "ambiguous": status == "ambiguous" or dup,
+                "dup_quote": dup,
+                "hits": hits,
+            }
+            stats[status] += 1
+        if rid in index:
+            entries[index[rid]] = entry          # 同 id 覆盖（幂等重跑）
+        else:
+            index[rid] = len(entries)
+            entries.append(entry)
+        used_ids.add(rid)
+    data["entries"] = entries
+
+    # 条目14 完整性校验：每条 request 的 id 都必须在 entries 中；
+    # 首次填充时 entries 数必须等于 requests 数（静默丢失即 fail）
+    final_ids = set(e.get("id") for e in entries)
+    absent = [rid for rid in resolved_req_ids if rid not in final_ids]
+    if absent:
+        fail("fill 校验失败：%d 条 request 未落入 entries（id: %s）"
+             % (len(absent), ", ".join(absent[:10])), code=1)
+    if n_before == 0 and len(entries) != len(requests):
+        fail("fill 校验失败：requests %d 条但 entries %d 条（条目静默丢失）"
+             % (len(requests), len(entries)), code=1)
+
     try:
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -342,7 +479,9 @@ def do_fill(args):
     return {
         "success": True, "action": "fill", "processed": processed,
         "resolved": stats["resolved"], "ambiguous": stats["ambiguous"],
-        "not_found": stats["not_found"],
+        "not_found": stats["not_found"], "structural_only": stats["structural_only"],
+        "entries_total": len(entries),
+        "source_extract": extract_info,
         "anchor_map": to_posix(os.path.abspath(path)),
     }, 0
 

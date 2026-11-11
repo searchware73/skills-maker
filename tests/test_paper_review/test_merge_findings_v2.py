@@ -190,5 +190,138 @@ class TestV2MissingInputs(unittest.TestCase):
         tmp.cleanup()
 
 
+class TestV21Integrity(unittest.TestCase):
+    """v2.1 条目15/16：空行不截断表格、R-ID 完整性校验、双口径计分。
+
+    回归背景（备忘 §十一）：
+    - 条目15：表格中间的手工空行曾使其后 R-40~R-45 全部静默丢失，
+      而 sources_missing 仍为空；
+    - 条目16：质量评分把重叠项也计入扣分（31 条 vs 实际保留 26 条），
+      与协议「重叠不重复计入」矛盾。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.run = os.path.join(self.tmp.name, "r1")
+        os.makedirs(self.run)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, roadmap=None, deai=None, config=None):
+        with open(os.path.join(self.run, "revision_roadmap.md"), "w",
+                  encoding="utf-8") as f:
+            f.write(roadmap if roadmap is not None else ROADMAP)
+        if deai is not None:
+            with open(os.path.join(self.run, "deai_confirmed.md"), "w",
+                      encoding="utf-8") as f:
+                f.write(deai)
+        if config is not None:
+            with open(os.path.join(self.tmp.name, "config.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False)
+
+    def _merged(self):
+        with open(os.path.join(self.run, "merged_findings.md"),
+                  encoding="utf-8") as f:
+            return f.read()
+
+    def test_blank_line_mid_table_keeps_rows(self):
+        """P0 表格中间插空行：空行后的行不得丢失（R-40~R-42 全进 merged）"""
+        roadmap = ROADMAP.replace(
+            "| R-2 | 摘要 | 过度声明「显著提升」无统计检验支撑 | 弱化措辞或补检验 | S6,S1 | 0.5h | 声明与证据匹配 |",
+            "| R-2 | 摘要 | 过度声明「显著提升」无统计检验支撑 | 弱化措辞或补检验 | S6,S1 | 0.5h | 声明与证据匹配 |\n"
+            "\n"
+            "| R-40 | §6 | 结论段数据与表4不符 | 复算更正 | S7 | 1h | table_sums pass |\n"
+            "| R-41 | §6.1 | 展望段空话 | 具体化 | S4 | 0.5h | 编辑认可 |\n"
+            "| R-42 | 附录A | 附录表编号错乱 | 重排 | S1 | 0.5h | 编号连续 |")
+        self._write(roadmap=roadmap)
+        code, js, err = run_merge(self.run)
+        merged = self._merged()
+        self.assertEqual(code, 0, err)
+        for rid in ("R-40", "R-41", "R-42"):
+            self.assertIn(rid, merged)
+        self.assertEqual(js["content_items"], 8)   # 原5（R-9未撤回）+3
+
+    def test_second_table_in_section_collected(self):
+        """同一 P 小节内散文后的第二个表格也被解析（本节全部表格口径）"""
+        roadmap = ROADMAP.replace(
+            "## P2 — 建议修改",
+            "补充（主持人手记）：以下另表追加两项。\n"
+            "\n"
+            "| ID | 位置 | 问题 | 建议 | 来源席 | 工作量 | 验收标准 |\n"
+            "|----|------|------|------|--------|--------|----------|\n"
+            "| R-50 | §1 | 引言第二段冗长 | 压缩 | S4 | 0.3h | 编辑认可 |\n"
+            "\n"
+            "## P2 — 建议修改")
+        self._write(roadmap=roadmap)
+        code, js, err = run_merge(self.run)
+        self.assertEqual(code, 0, err)
+        self.assertIn("R-50", self._merged())
+
+    def test_declared_id_lost_fails_exit1(self):
+        """ID 列有 R-5 但「问题」列为空 → 不得静默丢行：exit 1 并列出 ID"""
+        roadmap = ROADMAP.replace(
+            "| R-4 | §5 第2段 | 过渡生硬 | 增加过渡句 | S4 | 0.2h | 编辑认可 |",
+            "| R-4 | §5 第2段 | 过渡生硬 | 增加过渡句 | S4 | 0.2h | 编辑认可 |\n"
+            "| R-5 | §7 |  | 待补 | S2 | 1h | — |")
+        self._write(roadmap=roadmap)
+        code, js, err = run_merge(self.run)
+        self.assertEqual(code, 1)
+        self.assertIsNone(js)
+        self.assertIn("R-5", err)
+        self.assertIn("未进入合并清单", err)
+        # 失败的合并不得留下半成品输出
+        self.assertFalse(os.path.exists(
+            os.path.join(self.run, "merged_findings.md")))
+
+    def test_declared_id_withdrawn_exempt(self):
+        """desc 为空但 ID 在撤回记录中 → 豁免完整性校验，不 fail"""
+        roadmap = ROADMAP.replace(
+            "| R-9 | §4 | 数据集规模指控（已被撤回） | — | S6 | — | — |",
+            "| R-9 | §4 |  | — | S6 | — | — |")
+        self._write(roadmap=roadmap, config=CONFIG)
+        code, js, err = run_merge(self.run)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("未进入合并清单", err)
+        self.assertNotIn("R-9", self._merged().split("## 已撤回项")[0])
+
+    def test_scored_total_basis(self):
+        """条目16：confirmed_total=3（含重叠 D-2），scored_total=2；口径入 JSON 与产物"""
+        self._write(deai=DEAI_CONFIRMED)
+        code, js, err = run_merge(self.run)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(js["deai_confirmed_total"], 3)
+        self.assertEqual(js["deai_scored_total"], 2)
+        self.assertEqual(js["deai_items"], 2)
+        self.assertEqual(js["quality_score_basis"], "scored_total")
+        self.assertEqual(js["quality_basis_warnings"], [])
+        merged = self._merged()
+        self.assertIn("scored_total=2", merged)
+        self.assertIn("confirmed_total=3", merged)
+        self.assertIn("38/50", merged)
+
+    def test_declared_counts_mismatch_warns(self):
+        """2c 声明的 confirmed_total 与表格实际不符 → stderr 告警 + JSON 记录，不中断"""
+        deai = DEAI_CONFIRMED.replace(
+            "质量评分: 38/50",
+            "确认总数 confirmed_total: 9\n计分总数 scored_total: 8\n质量评分: 38/50")
+        self._write(deai=deai)
+        code, js, err = run_merge(self.run)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(js["quality_basis_warnings"]), 2)
+        self.assertIn("confirmed_total=9", err)
+        self.assertIn("scored_total=8", err)
+
+    def test_declared_counts_match_no_warning(self):
+        deai = DEAI_CONFIRMED.replace(
+            "质量评分: 38/50",
+            "确认总数 confirmed_total: 3\n计分总数 scored_total: 2\n质量评分: 38/50")
+        self._write(deai=deai)
+        code, js, err = run_merge(self.run)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(js["quality_basis_warnings"], [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
