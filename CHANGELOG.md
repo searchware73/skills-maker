@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## 2026-11-11 — paper-review v2.1.0（进行中 · G1 规范先行）
+
+> v2.1 按 `docs/handoff-20261108-paper-review-v2.md` §十一 分 G1–G4 四组实施，
+> 本节随各组追加；SKILL.md frontmatter 版本号在 Step 5 发版时升为 2.1.0。
+
+### G1 目录扁平化 + CLI/文档对齐 + 一致性守卫（条目 19/12/13/21/23/24）
+
+- **目录扁平化（条目 12，用户可见）**：改为「每篇论文一目录」的 v2.1 扁平结构——
+  工程根 `INDEX.md`（一行一篇）；`<paper-name>/` 内：v1 源（根单文件 **或** `v1/` 目录，
+  二选一，并存报错）、`vN/`（v2+ 源包，开审后不可变）、`draft/`（draft.md/draft-vN.md/figures/）、
+  `response/`（response-vN.md、expert-*.md）、`reports/`（rN-审阅报告.md/rN-复审报告.md 交付副本，
+  **复制而非软链接**）、`.review/`（config.json/chain.md/RESUME.md/rN/ 过程产物）。
+  `config.json` 增 `"layout": "flat-v2.1"`；v1.x 与 v2.0 存量产物保持只读兼容。
+- **setup_env.py 重写（条目 12/13，用户可见）**：`paper_dir` 从 `draft/` 反推（不再 `dirname(file_path)`）；
+  v1 二选一检测；`source_root` ∈ `"." | "v1" | "vN"`（旧 `sources/vN` 只读兼容）；
+  `unregistered_sources()` 忽略 v1/ vN/ draft/ response/ reports/ figures/ media/，并按 r1 开审时间截断；
+  根 `INDEX.md` 不存在时创建；新增 `--source/--format/--focus/--no-fix` 并透传 conversion_audit/anchor_map；
+  非 md 输入给 Step 0.0 分派指引后 exit 1；`.docx` 专家意见做 zip 魔数校验（exit 2）。
+- **新增 scripts/migrate_layout.py（条目 12，用户可见）**：存量 `papers/`+`output/` 工作空间 →
+  v2.1 扁平结构迁移；`--root` + `--dry-run`（默认）/`--apply`/`--rollback` + `--report`；
+  幂等（二次 apply 零改动）、可回滚（manifest + backups/ 字节级复原，`papers.bak/`/`output.bak/`
+  只移动不删除）；5 类人工判定项（非标准报告名/LaTeX 工程/media/figures/output 非报告）**只列 report 不猜**。
+- **migrate_rounds.py 同步（条目 12/19）**：「另建目录」轮次形态就地规范化为扁平口径
+  （`sources/vK`→`vK`、根 draft/response 归位、config 补 `layout` 戳），保持可用。
+- **专家意见 docx 原生支持（条目 21，门禁 G2 用户裁决，用户可见）**：`expert_reconcile.py --comments`
+  接受 `.docx`，zipfile+ElementTree 原生解析 word/document.xml（零第三方依赖，与 conversion_audit.py
+  同一模式）；Word 自动列表段落（w:numPr）转 `- ` 条目行，多行续接规则不变；损坏/伪 docx exit 1 明确报错。
+  §10.4 / SKILL 用法表 / 脚本实现三处口径统一为 `<md|docx>`。
+- **Step 0.0 输入类型分派（条目 23，用户可见）**：`.docx/.tex/目录` → pandoc 转 `draft/draft.md`
+  （docx 图落 media/ 后归位 figures/ 并改写引用）；`.pdf` → PyMuPDF 提取（逐页 `%% [PDF p.N]` 标记，
+  anchor_map pdf 源坐标依据）；实际转换命令与参数写入 conversion_audit.md「## 转换链路」节；
+  图片产物统一收敛 `draft/figures/`。
+- **文档同步（条目 19）**：SKILL.md（用法表/数据流目录树/Step 0.0/0.1 输出键/护栏 vN/ 选项/
+  Step 6.4 交付副本+INDEX 行/脚本清单）、re-review-protocol.md（v2.1 口径 + §9 双迁移脚本入口）、
+  templates/chain.md、templates/final-report.md、format-notes.md（第 4 条悬空引用改写 + 第 6 条转换留痕）；
+  备忘条目 5/7/8/21 加 v2.1 注记（保留历史原文）。
+- **新增守卫测试（条目 24）**：`test_docs_cli_consistency.py`（SKILL 用法块/用法表/调用行 flag ×
+  各脚本 argparse AST 双向对账 + 全脚本 `--help` 实测，10 例）；`test_referenced_files_exist.py`
+  （文档引用的 scripts/templates/references 路径存在性 + 孤儿文件反向收录守卫，5 例）。
+- **新增迁移夹具**：`tests/test_paper_review/fixtures/layout_legacy/`（按备忘「存量实测清单」构造
+  5 类最小样例，50 文件）+ `test_migrate_layout.py`（dry-run 不改盘/apply 结构/幂等/回滚字节级复原/
+  判定项进 report/合成冲突场景，24 例）。
+- 测试：`tests/test_paper_review/` 15 文件 212 用例全绿；G1 验证命令通过
+  （夹具 dry-run：5 类待确认项、26 moves、5 rewrites、零文件改动）。
+
 ## 2026-11-09 — paper-review v2.0.1（阶段5 评审复查调用修正）
 
 - **修复**：阶段5.2 的

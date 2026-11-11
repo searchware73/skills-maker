@@ -1,32 +1,51 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""setup_env.py — paper-review 环境初始化脚本（v2.0）
+"""setup_env.py — paper-review 环境初始化脚本（v2.1 扁平目录）
 
 功能：
-  1. 校验论文文件存在、可读、可解码（UTF-8 优先，GBK 兜底）
+  1. 校验论文文件存在、可读、可解码（UTF-8 优先，GBK 兜底）；
+     非 Markdown 输入（.pdf/.docx/.tex/目录）给出「先走 Step 0.0 输入类型
+     分派转换出 draft/draft.md」的明确指引
   2. 若指定 --section X.Y，解析 Markdown 标题定位该小节起止行号
      （1-based，含头含尾；小节范围覆盖其下所有子小节）
-  3. 版本与轮次解析（v2.0 §九）：
+  3. 目录扁平化（v2.1 §十一 第12条）：
+     - paper_dir 从 draft/ 反推：<paper>/draft/draft-vN.md → <paper>；
+       旧扁平形态 <paper>/draft-vN.md（v1.x 只读兼容）→ <paper>
+     - v1 二选一检测：根单文件源（source_root="."）与 v1/ 目录
+       （多文件 LaTeX 整包，source_root="v1"）不得并存，并存即报错
+     - v2+ 源一律 vN/（source_root="vN"）；旧 sources/vN 记录在目录
+       仍存在时只读兼容
+     - 工程根 INDEX.md 不存在时创建骨架（Step 6 追加行）
+  4. 版本与轮次解析（v2.0 §九）：
      - draft.md → v1；draft-vN.md → vN（第 N 个收到的稿件版本）
-     - r<N> = 第 N 次审阅运行；产物一律路由到 {review_dir}/r<N>/
+     - r<N> = 第 N 次审阅运行；产物一律路由到 {review_dir}/r<N>/；
+       rounds.rN 记录 started_at（覆盖护栏 v1 跟踪判定用）
      - .review/config.json 为跨轮状态唯一权威源（doctype/source_root/
-       豁免清单/撤回记录/用户裁决），已存在时合并保留
-  4. --doctype 稿件类型声明与准则绑定（v2.0 §八）：
+       豁免清单/撤回记录/用户裁决），已存在时合并保留；
+       新结构写入 "layout": "flat-v2.1"（迁移脚本识别用）
+  5. --doctype 稿件类型声明与准则绑定（v2.0 §八）：
      - 未声明且无历史继承时 needs_doctype_confirmation=true，
        附自动检测线索 doctype_hints，SKILL.md 必须 AskUserQuestion 确认后
        带 --doctype 重跑（同轮更新，不递增轮次），禁止臆测 full-paper
      - applied_criteria 输出该类型的 必备/豁免/置换/合规 四组规则
-  5. 覆盖护栏（§九规则2）：已有 r≥1 轮记录且根目录出现未登记的源文件时
-     needs_source_confirmation=true，SKILL.md 必须 AskUserQuestion 确认
-  6. Step 0 成本与模式预估（§十 ⑪）：按 doctype 与行数输出 estimate，
+  6. 覆盖护栏（§九规则2 + §十一 第7条修正）：已有 r≥1 轮记录且根目录出现
+     未登记源文件时 needs_source_confirmation=true；判定排除已登记文件、
+     v1/ vN/ draft/ response/ reports/ figures/ media/ 目录、以及
+     mtime 早于 r1 开跑时间的 v1 既有源
+  7. --source/--format/--focus/--no-fix（§十一 第13条）：源路径与格式
+     登记进 config.versions 并输出，透传给 conversion_audit / anchor_map；
+     --focus 在 Step 0 记录后由 SKILL 路由
+  8. Step 0 成本与模式预估（§十 ⑪）：按 doctype 与行数输出 estimate，
      给出 --quick vs 正式模式建议，用户可当场改判
 
 用法：
-  python setup_env.py --file 论文.md [--section 1.1] [--rounds 3]
+  python setup_env.py --file <paper>/draft/draft.md [--section 1.1] [--rounds 3]
+      [--source <源文件|源目录>] [--format tex|docx|pdf]
       [--doctype full-paper|thesis|proposal|problem-collection|extended-abstract
                 |technical-report|section-draft|review|other:<描述>]
-      [--re-review] [--response response-v2.md] [--expert-comments 专家意见.md]
-      [--quick] [--panel default|full] [--new-run]
+      [--focus panel|de-ai] [--quick] [--no-fix]
+      [--re-review] [--response <paper>/response/response-v2.md]
+      [--expert-comments 专家意见.md|.docx] [--panel default|full] [--new-run]
 
   轮次判定规则：
     - 无 config.json → r1
@@ -34,12 +53,14 @@
       同版本时默认复用 current_round（用于补 --doctype 等同轮更新）；
       对同一版本做全量重审须显式 --new-run
 
-输出（stdout，JSON；含 v1.x 全部旧键，向后兼容）：
+输出（stdout，JSON；含 v1.x/v2.0 全部旧键，向后兼容）：
   {
     "file_path": "...", "section": "1.1", "section_range": [20, 87],
+    "paper_dir": "...", "layout": "flat-v2.1", "index_path": ".../INDEX.md",
     "review_dir": ".../.review/", "run_dir": ".../.review/r2/",
     "rounds_max": 3, "total_lines": 500, "section_title": "...",
     "version": "v2", "round": "r2", "config_path": "...",
+    "source": "...", "source_format": "docx", "focus": null, "no_fix": false,
     "doctype": "problem-collection", "applied_criteria": {...},
     "needs_doctype_confirmation": false, "doctype_hints": [...],
     "needs_source_confirmation": false, "untracked_sources": [...],
@@ -50,11 +71,13 @@
 退出码：0=成功；1=初始化检查未通过（详见 JSON 与 stderr）；2=参数错误。
 """
 import argparse
+import datetime
 import io
 import json
 import os
 import re
 import sys
+import zipfile
 
 # 修复 Windows 下 GBK 编码问题，强制 UTF-8 输出
 if sys.platform == "win32":
@@ -66,6 +89,8 @@ if sys.platform == "win32":
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 LOG_FILES = ["deai_log.md", "revision_log.md", "convergence.md"]
+
+LAYOUT = "flat-v2.1"
 
 # 带编号标题：## 1.1 xxx / ### 1.1.1 xxx / # 1 xxx
 NUMBERED_HEADING_RE = re.compile(r"^(#{1,6})\s+(\d+(?:\.\d+)*)(?=[^\d.]|$)")
@@ -80,6 +105,21 @@ DOCTYPES = ("full-paper", "thesis", "proposal", "problem-collection",
 
 # 根目录源文件类型（覆盖护栏扫描用）
 SOURCE_EXTS = (".docx", ".pdf", ".tex", ".zip", ".doc")
+
+# 非 Markdown 输入（Step 0.0 输入类型分派应先转换）
+NON_MD_INPUT_EXTS = (".pdf", ".docx", ".doc", ".tex")
+
+# 覆盖护栏忽略目录（v2.1 扁平结构约定目录；vN/ 另按正则匹配）
+IGNORED_DIRS = ("draft", "response", "reports", "figures", "media")
+VN_DIR_RE = re.compile(r"^v\d+$", re.IGNORECASE)
+
+INDEX_HEADER = """# 论文审查索引
+
+> 一行一篇（paper-review Step 6 追加；路径相对论文目录）。
+
+| 稿件 | doctype | 当前轮次 | 决议 | 日期 | 报告路径 |
+|------|---------|----------|------|------|----------|
+"""
 
 # ── doctype 准则绑定表（§八；人类/代理可读版见 references/doctype-criteria.md，
 #    两处必须同步修改。required=(要素, 缺失严重度)；exempt=缺失一律不报；
@@ -153,6 +193,10 @@ def to_posix(path):
     return path.replace("\\", "/")
 
 
+def now_iso():
+    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
 def read_paper_lines(path):
     """读取论文文件。返回 (行列表, 错误信息)。UTF-8（含BOM）优先，GBK 兜底。"""
     for enc in ("utf-8-sig", "utf-8", "gbk"):
@@ -210,6 +254,96 @@ def find_section_range(lines, section):
     return [start_idx + 1, end_idx], lines[start_idx].strip(), match_kind, None
 
 
+# ────────────────────────── v2.1：扁平目录解析 ──────────────────────────
+
+def resolve_paper_dir(path):
+    """paper_dir 从 draft/ 反推（不得再用 dirname(file_path)）：
+    <paper>/draft/draft-vN.md → <paper>；旧扁平形态 <paper>/draft.md → <paper>"""
+    d = os.path.dirname(os.path.abspath(path))
+    if os.path.basename(d).lower() == "draft":
+        d = os.path.dirname(d)
+    return d
+
+
+def draft_rel_path(paper_dir, abs_file):
+    """draft 在 config 中的登记路径：相对 paper_dir 的 posix 路径
+    （新结构 draft/draft-vN.md；旧扁平结构 draft-vN.md）"""
+    return to_posix(os.path.relpath(os.path.abspath(abs_file), paper_dir))
+
+
+def _dir_has_source(d):
+    try:
+        for name in os.listdir(d):
+            fp = os.path.join(d, name)
+            if os.path.isfile(fp) and name.lower().endswith(SOURCE_EXTS):
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def root_source_files(paper_dir):
+    """论文根目录的源文件清单（SOURCE_EXTS；目录不计）"""
+    found = []
+    try:
+        for name in sorted(os.listdir(paper_dir)):
+            fp = os.path.join(paper_dir, name)
+            if os.path.isfile(fp) and name.lower().endswith(SOURCE_EXTS):
+                found.append(name)
+    except OSError:
+        pass
+    return found
+
+
+def detect_v1_form(paper_dir):
+    """v1 二选一检测（§十一 第12条）：
+    根单文件源 → "."；v1/ 目录（含源文件，多文件 LaTeX 整包）→ "v1"；
+    两者并存 → 错误。返回 (form|None, root_sources, error|None)"""
+    root_sources = root_source_files(paper_dir)
+    v1_dir = os.path.join(paper_dir, "v1")
+    has_v1_dir = os.path.isdir(v1_dir) and _dir_has_source(v1_dir)
+    if root_sources and has_v1_dir:
+        return None, root_sources, (
+            "v1 双形态并存：根目录源文件 [%s] 与 v1/ 目录同时存在。"
+            "约定二选一：单文件源留根目录（source_root=\".\"），"
+            "或多文件工程整体入 v1/（source_root=\"v1\"）；请移除其一后重试"
+            % ", ".join(root_sources))
+    if has_v1_dir:
+        return "v1", root_sources, None
+    if root_sources:
+        return ".", root_sources, None
+    return None, root_sources, None      # 无源文件（纯 draft 审查），不报错
+
+
+def resolve_source_root(paper_dir, version_no, v1_form, recorded):
+    """source_root 取值："." | "v1" | "vN"（旧 "sources/vN" 仅在目录仍在时只读兼容）"""
+    if version_no == 1:
+        return v1_form or recorded or "."
+    new = "v%d" % version_no
+    legacy = "sources/v%d" % version_no
+    if os.path.isdir(os.path.join(paper_dir, new)):
+        return new
+    if os.path.isdir(os.path.join(paper_dir, *legacy.split("/"))):
+        return legacy                    # 未迁移的 v2.0 工作空间，只读兼容
+    if recorded and not recorded.startswith("sources/"):
+        return recorded
+    return new
+
+
+def ensure_index(paper_dir):
+    """工程根 INDEX.md 不存在时创建骨架。返回 (path|None, warning|None)"""
+    project_root = os.path.dirname(paper_dir)
+    path = os.path.join(project_root, "INDEX.md")
+    if os.path.exists(path):
+        return path, None
+    try:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(INDEX_HEADER)
+        return path, None
+    except OSError as e:
+        return None, "INDEX.md 创建失败（不阻塞）: %s" % e
+
+
 # ────────────────────────── v2.0：版本/轮次/config ──────────────────────────
 
 def parse_version(path):
@@ -253,26 +387,64 @@ def criteria_for(doctype):
     return DOCTYPE_CRITERIA.get(doctype)
 
 
+def _r1_cutoff_ts(config):
+    """r1 开跑时间（epoch 秒）；无记录返回 None（条目7 护栏修正用）"""
+    started = ((config.get("rounds") or {}).get("r1") or {}).get("started_at")
+    if not started:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(started).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
 def unregistered_sources(paper_dir, config):
-    """覆盖护栏：根目录出现未登记进 config.versions 的源文件"""
+    """覆盖护栏：根目录出现未登记进 config.versions 的源文件。
+
+    排除（§十一 第7/12条）：
+      - 已登记文件（versions 各版本的 draft/response/source_file 基名）
+      - 约定目录 v1/ vN/ draft/ response/ reports/ figures/ media/（目录不计）
+      - mtime 早于 r1 开跑时间的文件（v1 既有源，防误报）
+    """
     known = set()
     for v in (config.get("versions") or {}).values():
-        for key in ("draft", "response"):
+        for key in ("draft", "response", "source_file"):
             if v.get(key):
                 known.add(os.path.basename(v[key]))
-        if v.get("source_file"):
-            known.add(os.path.basename(v["source_file"]))
+    cutoff = _r1_cutoff_ts(config)
     found = []
     try:
-        for name in sorted(os.listdir(paper_dir)):
-            fp = os.path.join(paper_dir, name)
-            if (os.path.isfile(fp)
-                    and name.lower().endswith(SOURCE_EXTS)
-                    and name not in known):
-                found.append(name)
+        names = sorted(os.listdir(paper_dir))
     except OSError:
-        pass
+        return found
+    for name in names:
+        if name in IGNORED_DIRS or VN_DIR_RE.match(name):
+            continue
+        fp = os.path.join(paper_dir, name)
+        if not (os.path.isfile(fp) and name.lower().endswith(SOURCE_EXTS)):
+            continue
+        if name in known:
+            continue
+        if cutoff is not None:
+            try:
+                if os.path.getmtime(fp) <= cutoff:
+                    continue
+            except OSError:
+                pass
+        found.append(name)
     return found
+
+
+def infer_format(source):
+    """--format 缺省推断（与 conversion_audit.py 口径一致）：
+    目录→tex；.tex→tex；.docx/.doc→docx；.pdf/.txt→pdf"""
+    if source is None:
+        return None
+    if os.path.isdir(source):
+        return "tex"
+    ext = os.path.splitext(source)[1].lower()
+    return {".tex": "tex", ".docx": "docx", ".doc": "docx",
+            ".pdf": "pdf", ".txt": "pdf"}.get(ext)
 
 
 def make_estimate(lines_count, doctype, quick, re_review, expert, panel_full):
@@ -338,28 +510,44 @@ def parse_doctype(raw):
 def main():
     parser = argparse.ArgumentParser(
         prog="setup_env.py",
-        description="paper-review 环境初始化（v2.0）：校验文件、定位章节、"
-                    "版本/轮次解析与 r<N>/ 产物路由、config.json 维护、"
-                    "--doctype 准则绑定、覆盖护栏、成本预估，输出 JSON。",
+        description="paper-review 环境初始化（v2.1 扁平目录）：校验文件、定位章节、"
+                    "paper_dir 从 draft/ 反推、v1 二选一检测、版本/轮次解析与 r<N>/ "
+                    "产物路由、config.json 维护（layout=flat-v2.1）、--doctype 准则绑定、"
+                    "覆盖护栏、--source/--format 透传、成本预估，输出 JSON。",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--file", metavar="PATH", required=True,
-                        help="待审查论文文件路径（Markdown；draft.md=v1，draft-vN.md=vN）")
+                        help="待审查论文文件路径（Markdown：<paper>/draft/draft.md=v1，"
+                             "draft/draft-vN.md=vN；旧扁平根目录形态只读兼容）")
     parser.add_argument("--section", metavar="X.Y", default=None,
                         help="限定审查范围到某小节（如 1.1，自动覆盖其子小节）")
     parser.add_argument("--rounds", metavar="N", type=int, default=3,
                         help="收敛循环最大轮数")
+    parser.add_argument("--source", metavar="PATH", default=None,
+                        help="源文件/目录（tex 目录 / .docx / .pdf / pdf提取.txt），"
+                             "登记进 config 并透传 conversion_audit / anchor_map（三轨定位）")
+    parser.add_argument("--format", metavar="FMT", choices=["tex", "docx", "pdf"],
+                        default=None,
+                        help="源格式（缺省按 --source 扩展名推断：目录→tex，.tex→tex，"
+                             ".docx→docx，.pdf/.txt→pdf）")
     parser.add_argument("--doctype", metavar="TYPE", default=None,
                         help="稿件类型：full-paper|thesis|proposal|problem-collection|"
                              "extended-abstract|technical-report|section-draft|review|other:<描述>")
+    parser.add_argument("--focus", metavar="STAGE", choices=["panel", "de-ai"],
+                        default=None,
+                        help="只执行指定阶段：panel（阶段1）/ de-ai（阶段2），"
+                             "Step 0 记录后由 SKILL 路由，之后直达 Step 6")
+    parser.add_argument("--quick", action="store_true",
+                        help="快速模式（S1+S6 两席单实例，跳过讨论轮）")
+    parser.add_argument("--no-fix", action="store_true",
+                        help="只审查报告，不修改稿件（跳过阶段4/5）")
     parser.add_argument("--re-review", action="store_true",
                         help="核验式复审模式（见 references/re-review-protocol.md）")
     parser.add_argument("--response", metavar="FILE", default=None,
-                        help="随修订版提交的作者回复信路径（可选输入）")
+                        help="随修订版提交的作者回复信路径（<paper>/response/response-vN.md）")
     parser.add_argument("--expert-comments", metavar="FILE", default=None,
-                        help="外部专家意见文件（md/docx 提取文本），启用阶段1后对账")
-    parser.add_argument("--quick", action="store_true",
-                        help="快速模式（S1+S6 两席单实例，跳过讨论轮）")
+                        help="外部专家意见文件（md 或 docx，docx 由 expert_reconcile.py "
+                             "原生解析），启用阶段1后对账")
     parser.add_argument("--panel", choices=["default", "full"], default="default",
                         help="复审时面板范围：default=裁剪席位，full=七席全开")
     parser.add_argument("--new-run", action="store_true",
@@ -376,8 +564,22 @@ def main():
     if args.response and not os.path.isfile(args.response):
         print("错误：--response 文件不存在: %s" % args.response, file=sys.stderr)
         sys.exit(2)
-    if args.expert_comments and not os.path.isfile(args.expert_comments):
-        print("错误：--expert-comments 文件不存在: %s" % args.expert_comments, file=sys.stderr)
+    if args.expert_comments:
+        if not os.path.isfile(args.expert_comments):
+            print("错误：--expert-comments 文件不存在: %s" % args.expert_comments,
+                  file=sys.stderr)
+            sys.exit(2)
+        if (args.expert_comments.lower().endswith(".docx")
+                and not zipfile.is_zipfile(args.expert_comments)):
+            print("错误：--expert-comments 不是有效 docx（zip）文件: %s；"
+                  "请确认为 Word 文档或先转换为 md 文本" % args.expert_comments,
+                  file=sys.stderr)
+            sys.exit(2)
+    if args.source and not os.path.exists(args.source):
+        print("错误：--source 不存在: %s" % args.source, file=sys.stderr)
+        sys.exit(2)
+    if args.format and not args.source:
+        print("错误：--format 须与 --source 同时提供", file=sys.stderr)
         sys.exit(2)
 
     section = args.section.strip().lstrip("§").rstrip(".") if args.section else None
@@ -398,6 +600,11 @@ def main():
         problems.append("论文文件不存在: %s" % path)
     elif not os.path.isfile(path):
         problems.append("论文路径不是文件: %s" % path)
+    elif path.lower().endswith(NON_MD_INPUT_EXTS):
+        problems.append(
+            "输入不是 Markdown（%s）：请先按 SKILL Step 0.0 输入类型分派转换为 "
+            "<paper>/draft/draft.md（转换命令与参数写入 conversion_audit.md）后再初始化"
+            % os.path.splitext(path)[1])
     else:
         result["file_path"] = to_posix(os.path.abspath(path))
         lines, err = read_paper_lines(path)
@@ -418,13 +625,19 @@ def main():
                               file=sys.stderr)
 
     if not problems:
-        paper_dir = os.path.dirname(os.path.abspath(path))
+        paper_dir = resolve_paper_dir(path)
         review_dir = os.path.join(paper_dir, ".review")
         config_path = os.path.join(review_dir, "config.json")
         version_no = parse_version(path)
         version = "v%d" % version_no
         config = load_config(config_path)
 
+        # ── v1 二选一检测（并存即报错，§十一 第12条）──
+        v1_form, root_sources, form_err = detect_v1_form(paper_dir)
+        if form_err:
+            problems.append(form_err)
+
+    if not problems:
         # ── 轮次判定 ──
         if config is None:
             round_no = 1
@@ -438,6 +651,9 @@ def main():
                 "current_round": "r1",
                 "exemptions": [], "withdrawals": [], "adjudications": [],
             }
+            # 旧结构（sources/ 仍在）不盖 flat-v2.1 章，供 migrate_layout 识别
+            if not os.path.isdir(os.path.join(paper_dir, "sources")):
+                config["layout"] = LAYOUT
         else:
             cur_v = config.get("current_version") or "v1"
             cur_no = int(cur_v.lstrip("v") or 1)
@@ -451,20 +667,40 @@ def main():
                 if version_no < cur_no:
                     print("警告：文件版本 %s 低于 config 记录 %s，按当前轮次更新处理"
                           % (version, cur_v), file=sys.stderr)
+            # 旧结构（sources/ 已不存在）才盖 flat-v2.1 章，供 migrate_layout 识别
+            if not os.path.isdir(os.path.join(paper_dir, "sources")):
+                config["layout"] = LAYOUT
+            config["paper_dir"] = to_posix(paper_dir)
         round_id = "r%d" % round_no
 
         # ── versions / rounds 映射登记 ──
         versions = config.setdefault("versions", {})
-        v_entry = versions.setdefault(version, {"source_root": "." if version_no == 1
-                                                else "sources/%s" % version,
+        recorded = (versions.get(version) or {}).get("source_root")
+        v_entry = versions.setdefault(version, {"source_root": None,
                                                 "draft": None, "response": None})
-        v_entry["draft"] = os.path.basename(path)
+        v_entry["source_root"] = resolve_source_root(
+            paper_dir, version_no, v1_form, recorded)
+        v_entry["draft"] = draft_rel_path(paper_dir, path)
+        # v1 源登记（条目7 护栏修正：根单文件源可无歧义时记名，防误报 untracked）
+        if version_no == 1 and v1_form == "." and len(root_sources) == 1:
+            v_entry["source_file"] = root_sources[0]
         if args.response:
-            v_entry["response"] = os.path.basename(args.response)
+            v_entry["response"] = draft_rel_path(paper_dir, args.response)
+        if args.source:
+            src_abs = os.path.abspath(args.source)
+            v_entry["source"] = to_posix(src_abs)
+            v_entry["source_format"] = args.format or infer_format(args.source)
+            if os.path.isfile(src_abs):
+                v_entry["source_file"] = os.path.basename(src_abs)
         rounds = config.setdefault("rounds", {})
         r_entry = rounds.setdefault(round_id, {"version": version})
+        r_entry.setdefault("started_at", now_iso())
         if args.re_review:
             r_entry["re_review"] = True
+        if args.focus:
+            r_entry["focus"] = args.focus
+        if args.no_fix:
+            r_entry["no_fix"] = True
         config["current_round"] = round_id
 
         # ── doctype：显式声明 > config 继承 > 待确认 ──
@@ -495,7 +731,7 @@ def main():
             if crit.get("description"):
                 result["applied_criteria"]["description"] = crit["description"]
 
-        # ── 覆盖护栏（§九规则2）──
+        # ── 覆盖护栏（§九规则2 + 条目7 修正）──
         needs_src = False
         untracked = []
         if rounds and len(rounds) >= 1 and not args.new_run:
@@ -506,13 +742,27 @@ def main():
             result["untracked_sources"] = untracked
 
         # ── 其它 v2 输入 ──
+        result["paper_dir"] = to_posix(paper_dir)
+        result["layout"] = config.get("layout")
         result["version"] = version
         result["round"] = round_id
         result["re_review"] = bool(args.re_review)
+        result["focus"] = args.focus
+        result["no_fix"] = bool(args.no_fix)
+        result["source"] = (to_posix(os.path.abspath(args.source))
+                            if args.source else None)
+        result["source_format"] = (args.format or infer_format(args.source)) \
+            if args.source else None
         result["expert_comments"] = (to_posix(os.path.abspath(args.expert_comments))
                                      if args.expert_comments else None)
         if args.expert_comments:
             config["expert_comments"] = result["expert_comments"]
+
+        # ── 工程根 INDEX.md（§十一 第5/19条：缺失时创建骨架）──
+        index_path, index_warn = ensure_index(paper_dir)
+        if index_warn:
+            print("警告：%s" % index_warn, file=sys.stderr)
+        result["index_path"] = to_posix(index_path) if index_path else None
 
         # ── 成本与模式预估（§十 ⑪）──
         result["estimate"] = make_estimate(

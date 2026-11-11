@@ -15,6 +15,9 @@ he-paper 风格夹具：8 条编号专家意见（混合 `1.` `2、` `- ` `* ` `
   - verify：rejected / confirmed 计数、缺参 exit 2、未知 ID exit 2、
            未 match 即 verify exit 2
   - expert_reconcile.md：隔离区节、核实记录行
+  - docx 原生支持（v2.1 条目21，门禁 G2 裁决）：zipfile 构造最小 docx，
+           init 解析段落/Word 列表段落（numPr → `- ` 条目）、多行续接、
+           match 三态贯通；损坏 docx → exit 1 明确报错
 
 运行：python tests/test_paper_review/test_expert_reconcile.py
 """
@@ -25,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
@@ -408,6 +412,100 @@ class TestReport(Base):
             self.assertIn(key, js)
             self.assertEqual(js[key], show[key])
         self.assertIn("reconcile_file", js)
+
+
+# ────────────────────────── docx 原生支持（条目21） ──────────────────────────
+
+def _esc(text):
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def build_docx(path, paragraphs):
+    """构造最小合法 docx（仅 word/document.xml）。
+    paragraphs: [(text, numbered)]，numbered=True 模拟 Word 自动列表段落
+    （编号在 w:numPr 而不在正文文本中）。"""
+    body = []
+    for text, numbered in paragraphs:
+        ppr = ("<w:pPr><w:numPr><w:ilvl w:val=\"0\"/>"
+               "<w:numId w:val=\"1\"/></w:numPr></w:pPr>") if numbered else ""
+        body.append("<w:p>%s<w:r><w:t xml:space=\"preserve\">%s</w:t></w:r></w:p>"
+                    % (ppr, _esc(text)))
+    doc = ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+           "<w:document xmlns:w=\"http://schemas.openxmlformats.org/"
+           "wordprocessingml/2006/main\"><w:body>%s</w:body></w:document>"
+           % "".join(body))
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("word/document.xml", doc.encode("utf-8"))
+    return path
+
+
+class TestDocxComments(Base):
+    """专家意见 .docx：init 原生解析（门禁 G2 裁决：零第三方依赖）"""
+
+    def make_comments_docx(self, paragraphs):
+        path = os.path.join(self.dir, "expert_comments.docx")
+        return build_docx(path, paragraphs)
+
+    def init_docx(self, paragraphs):
+        self.comments = self.make_comments_docx(paragraphs)
+        return self.do_init()
+
+    def test_init_parses_docx_entries(self):
+        js = self.init_docx([
+            ("1. §3.2 的实验基线数据描述自相矛盾，数值缺少出处。", False),
+            ("图4.1 的架构图分辨率过低，图例文字无法辨认。", True),   # Word 列表段落
+            ("", False),                                              # 空段落分隔
+            ("结论部分过度扩展。", True),
+        ])
+        self.assertEqual(js["count"], 3)
+        with open(os.path.join(self.run_dir, "expert_items.json"),
+                  encoding="utf-8") as f:
+            data = json.load(f)
+        ids = [e["id"] for e in data["entries"]]
+        self.assertEqual(ids, ["E-1", "E-2", "E-3"])
+        # 文本前缀剥离（md 起始标记）与 Word 列表段落（numPr → 条目）
+        self.assertEqual(data["entries"][0]["text"],
+                         "§3.2 的实验基线数据描述自相矛盾，数值缺少出处。")
+        self.assertEqual(data["entries"][1]["text"],
+                         "图4.1 的架构图分辨率过低，图例文字无法辨认。")
+        self.assertTrue(data["comments_file"].endswith("expert_comments.docx"))
+
+    def test_docx_continuation_merged(self):
+        """Word 列表段落后续接的普通段落归并到前一条目"""
+        js = self.init_docx([
+            ("方法部分描述不完整：数据预处理流程缺失，", True),
+            ("影响可复现性。", False),
+        ])
+        self.assertEqual(js["count"], 1)
+        with open(os.path.join(self.run_dir, "expert_items.json"),
+                  encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertIn("影响可复现性。", data["entries"][0]["text"])
+
+    def test_docx_match_pipeline(self):
+        """docx init → match 三态贯通（与 md 入口同构）"""
+        self.init_docx([
+            ("§3.2 的实验基线数据描述自相矛盾，数值缺少出处。", True),
+            ("表4.1 的数据单位标注错误。", True),
+        ])
+        self.write_findings()
+        js = self.do_match()
+        self.assertEqual(js["total"], 2)
+        self.assertEqual(js["matched"], 1)          # §3.2 基线数据 → P0#1
+        self.assertEqual(js["conflicts"], 1)        # 表4.1 → 已撤回/误报 → conflict
+        self.assertEqual(js["counted_from_expert"], 0)   # 隔离铁律不变
+
+    def test_corrupt_docx_exit1(self):
+        """非 zip 的 .docx（如纯文本改名）→ exit 1 明确报错，不静默
+        （expert_reconcile 的 fail() 契约：错误走 stderr + 非零退出码）"""
+        self.comments = os.path.join(self.dir, "fake.docx")
+        with open(self.comments, "w", encoding="utf-8") as f:
+            f.write("这不是 docx，只是改了扩展名的文本\n")
+        code, js, err = run(["--run-dir", self.run_dir, "init",
+                             "--comments", self.comments])
+        self.assertEqual(code, 1)
+        self.assertIsNone(js)                    # stdout 无 JSON（stderr 契约）
+        self.assertIn("无法解析 docx", err)
 
 
 if __name__ == "__main__":

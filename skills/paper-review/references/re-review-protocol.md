@@ -1,8 +1,10 @@
-# re-review-protocol.md — 核验式复审协议（v2.0 §九）
+# re-review-protocol.md — 核验式复审协议（v2.0 §九；v2.1 扁平口径）
 
 > **可替换模板**：paper-review `--re-review` 模式（核验式复审）依据本协议执行。
-> 目录约定：v1 源留根目录，v2+ 入 `sources/v<N>/`；`.review/r<N>/` 按轮次路由产物；
-> `config.json` 为跨轮状态唯一权威源；`chain.md` 为版本谱系载体。
+> 目录约定（v2.1 扁平结构）：v1 源留论文根（单文件）或整体入 `v1/`（二选一），
+> v2+ 入 `v<N>/`；草稿入 `draft/`、回复信入 `response/`、交付报告入 `reports/`；
+> `.review/r<N>/` 按轮次路由过程产物；`config.json` 为跨轮状态唯一权威源；
+> `chain.md` 为版本谱系载体。
 > 实证来源：q10/q10-1 案（另建目录导致首轮信息物理隔离、手工「本次忽略」清单、
 > 无法自动核销上轮 P0/P1）。
 
@@ -11,7 +13,7 @@
 ## 1. 调用与轮次判定
 
 ```
-/paper-review papers/<name>/draft-v2.md --no-fix --re-review [--response response-v2.md]
+/paper-review <paper>/draft/draft-v2.md --no-fix --re-review [--response <paper>/response/response-v2.md]
 ```
 
 - 轮次自动判定：文件名 v<N> / config.json 当前轮次；每次运行产物入 `.review/r<N>/`
@@ -32,7 +34,7 @@
 
 ## 3. diff 驱动的面板范围（延续性与成本兼得）
 
-Step 0 后执行：`Bash("python {SKILL_DIR}/scripts/diff_scope.py --old <v(N-1)稿> --new <vN稿> --output {run_dir}/diff_scope.md")`
+Step 0 后执行：`Bash("python {SKILL_DIR}/scripts/diff_scope.py --old {paper_dir}/draft/draft-v(N-1).md --new {paper_dir}/draft/draft-vN.md --output {run_dir}/diff_scope.md")`
 
 | 区域 | 审查策略 |
 |------|---------|
@@ -73,19 +75,25 @@ Step 0 后执行：`Bash("python {SKILL_DIR}/scripts/diff_scope.py --old <v(N-1)
 
 ## 7. 产物命名
 
-- 轮报告：`output/<name>-r<N>-re-review-report.md`
-  （追溯矩阵 + diff 范围新发现 + 评分对比）；首轮仍为 `<name>-审阅报告.md`
-- `r<N>/` 内保留该轮完整中间产物供追溯；chain.md 每轮更新
+- 过程记录：`{run_dir}/final_report.md`；交付副本：`<paper>/reports/r<N>-复审报告.md`
+  （追溯矩阵 + diff 范围新发现 + 评分对比；Step 6 复制生成）；首轮交付副本为
+  `<paper>/reports/r1-审阅报告.md`
+- `r<N>/` 内保留该轮完整中间产物供追溯；chain.md 每轮更新；工程根 INDEX.md 同步
 
 ## 8. 覆盖护栏与不可变性（§九规则2/3）
 
-- Step 0 检测到「根目录出现新源文件且已有 r≥1 轮记录」→ setup_env.py 输出
+- Step 0 检测到「论文目录出现新源文件且已有 r≥1 轮记录」→ setup_env.py 输出
   `needs_source_confirmation=true`，必须 AskUserQuestion（「这是修订版吗？
-  是否移入 sources/v<N>/？」），禁止默默混入或覆盖根目录 v1 源
-- 根目录 v1 源与 sources/v<N>/ 自对应轮次开审起**不可变**；再修订产生 v<N+1>
+  是否移入 v<N>/？」），禁止默默混入或覆盖 v1 源
+- v1 源（根单文件或 `v1/`）与 `v<N>/` 自对应轮次开审起**不可变**；再修订产生 v<N+1>
 
-## 9. 存量迁移（旧「另建目录」形态 → 新形态）
+## 9. 存量迁移（旧形态 → v2.1 扁平结构）
 
-`Bash("python {SKILL_DIR}/scripts/migrate_rounds.py --paper-dir papers/q10 --new-dir papers/q10-1 --doctype problem-collection")`
-（先 dry-run 看计划，加 `--confirm` 执行；脚本只移动不删除，
-腾空后的旧目录经用户确认再手工删除。）
+- 「另建目录」轮次形态（q10/q10-1 式）：
+  `Bash("python {SKILL_DIR}/scripts/migrate_rounds.py --paper-dir <论文目录> --new-dir <新版本解压目录> --doctype <类型>")`
+  （先 dry-run 看计划，加 `--confirm` 执行；就地规范化为扁平口径：
+  `sources/vK`→`vK`、根 draft/response 归位、config 补 `layout="flat-v2.1"`）
+- `papers/` + `output/` 旧工作空间：
+  `Bash("python {SKILL_DIR}/scripts/migrate_layout.py --root <工作空间根> --dry-run")`
+  看计划与人工判定清单后 `--apply`（出错可 `--rollback`；只移动不删除，
+  `papers.bak/`、`output.bak/` 经用户确认再手工删除）

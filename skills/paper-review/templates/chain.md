@@ -9,11 +9,11 @@
 # 版本谱系 — {name}
 
 - doctype：{problem-collection}（{r1 声明 / r2 仲裁改判}）
-- 源根映射：v1="."，v2="sources/v2/"
+- 源根映射：v1="."（根单文件）或 "v1"（多文件工程），v2="v2"
 
 ## r1（v1，{YYYY-MM-DD}）
 
-- 版本文件：draft.md（hash: {前8位}）
+- 版本文件：draft/draft.md（hash: {前8位}）
 - 决议：{Major Revision}（映射评分 {6}）
 - 评分：方法论 {N}/10 | 写作 {N}/10 | 创新性 {N}/10 | 总体 {N}/10
 - 发现：P0 {a} / P1 {b} / P2 {c}；撤回 {w} 条
@@ -22,7 +22,7 @@
 
 ## r2（v2，{YYYY-MM-DD}，核验式复审）
 
-- 版本文件：draft-v2.md（hash: {前8位}）；response：response-v2.md
+- 版本文件：draft/draft-v2.md（hash: {前8位}）；response：response/response-v2.md
 - 评分轨迹（vs r1）：总体 {6.2 → 7.5}（{+1.3}）
 - 决议：{Minor Revision}（映射评分 {8}）
 - **发现状态流转表**：

@@ -1,7 +1,10 @@
-# {name}{-rN-re-review-report | -审阅报告}.md — 最终报告模板（v2.0）
+# final_report.md — 最终报告模板（v2.1）
 
 > 用法：Step 6 以本模板为骨架 Write `{run_dir}/final_report.md`（勿用 heredoc），
-> 再向用户呈现。`{…}` 为占位符；标注（可选）的节按条件出现。
+> 再向用户呈现；随后**复制**（非软链接）交付副本到
+> `{paper_dir}/reports/r{N}-审阅报告.md`（复审轮为 `r{N}-复审报告.md`），
+> 并在工程根 INDEX.md 追加/更新该篇一行（Step 6.4）。
+> `{…}` 为占位符；标注（可选）的节按条件出现。
 > v1.x 六节结构保留 + v2.0 新增：稿件类型与准则适配节、数据完整性关切专节、
 > 专家意见对账表、转换审计摘要行、源位置三轨列。
 
@@ -89,9 +92,11 @@
 
 ## 产物路径
 
-{run_dir 下全部文件清单：config.json / RESUME.md / seat_config.md / seat_reports/ /
-debate_summary.md / decision_letter.md / revision_roadmap.md / deai_audits/ /
-deai_cross.md / deai_confirmed.md / deai_exempt.md / merged_findings.md /
-anchor_map.json / conversion_audit.md / bib_lint.md / diff_scope.md（复审）/
-rr_matrix.md（复审）/ expert_reconcile.md（如有）/ revision_log.md /
-convergence.md / chain.md / final_report.md}
+- `.review/`：config.json / chain.md / RESUME.md
+- `.review/r<N>/`：seat_config.md / seat_reports/ / debate_summary.md /
+  decision_letter.md / revision_roadmap.md / deai_audits/ / deai_cross.md /
+  deai_confirmed.md / deai_exempt.md / merged_findings.md / anchor_map.json /
+  conversion_audit.md / bib_lint.md / diff_scope.md（复审）/ rr_matrix.md（复审）/
+  expert_reconcile.md（如有）/ revision_log.md / convergence.md / final_report.md
+- `reports/`：r<N>-审阅报告.md（或 r<N>-复审报告.md，交付副本）
+- 工程根：INDEX.md（一行一篇）

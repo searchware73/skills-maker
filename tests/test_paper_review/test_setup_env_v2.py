@@ -193,7 +193,7 @@ class TestRoundsAndGuard(unittest.TestCase):
         with open(os.path.join(self.dir, ".review", "config.json"),
                   encoding="utf-8") as f:
             cfg = json.load(f)
-        self.assertEqual(cfg["versions"]["v2"]["source_root"], "sources/v2")
+        self.assertEqual(cfg["versions"]["v2"]["source_root"], "v2")
         self.assertEqual(cfg["current_round"], "r2")
         self.assertTrue(cfg["rounds"]["r2"]["re_review"])
 
@@ -272,6 +272,231 @@ class TestEstimate(unittest.TestCase):
                              "--expert-comments", "expert.md")
         self.assertTrue(js["expert_comments"].endswith("expert.md"))
         self.assertEqual(js["estimate"]["agents"]["expert_reconcile"], 1)
+
+
+class TestFlatLayout(unittest.TestCase):
+    """v2.1 §十一 第12条：目录扁平化（draft/ 反推、v1 二选一、source_root、INDEX、忽略目录）"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name          # 工程根
+        self.paper = os.path.join(self.root, "paper1")
+        os.makedirs(os.path.join(self.paper, "draft"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, rel, content="# 稿\n", binary=None):
+        p = os.path.join(self.paper, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        if binary is not None:
+            with open(p, "wb") as f:
+                f.write(binary)
+        else:
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(content)
+        return p
+
+    def cfg(self):
+        with open(os.path.join(self.paper, ".review", "config.json"),
+                  encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_paper_dir_from_draft_subdir(self):
+        """paper_dir 从 draft/ 反推，不得再用 dirname(file_path)"""
+        self.write("draft/draft.md", DRAFT_V1)
+        code, js, err = run_setup(self.root, "--file",
+                                  os.path.join("paper1", "draft", "draft.md"),
+                                  "--doctype", "full-paper")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(js["paper_dir"].endswith("/paper1"))
+        self.assertTrue(js["review_dir"].endswith("/paper1/.review/"))
+        self.assertTrue(os.path.isdir(os.path.join(self.paper, ".review", "r1")))
+        self.assertEqual(self.cfg()["versions"]["v1"]["draft"], "draft/draft.md")
+        self.assertEqual(self.cfg()["layout"], "flat-v2.1")
+        self.assertEqual(js["layout"], "flat-v2.1")
+
+    def test_legacy_root_draft_still_works(self):
+        """v1.x 扁平产物只读兼容：根目录 draft.md 仍可初始化"""
+        self.write("draft.md", DRAFT_V1)
+        code, js, err = run_setup(self.root, "--file",
+                                  os.path.join("paper1", "draft.md"),
+                                  "--doctype", "full-paper")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(js["paper_dir"].endswith("/paper1"))
+        self.assertEqual(self.cfg()["versions"]["v1"]["draft"], "draft.md")
+
+    def test_v1_dual_form_conflict_error(self):
+        """v1 二选一：根单文件源与 v1/ 目录并存 → 报错"""
+        self.write("draft/draft.md", DRAFT_V1)
+        self.write("paper.docx", binary=b"PK\x03\x04stub")
+        self.write("v1/main.tex", content="\\documentclass{article}\n")
+        code, js, err = run_setup(self.root, "--file",
+                                  os.path.join("paper1", "draft", "draft.md"),
+                                  "--doctype", "full-paper")
+        self.assertEqual(code, 1)
+        self.assertFalse(js["success"])
+        self.assertTrue(any("v1 双形态并存" in p for p in js["problems"]), js)
+
+    def test_v1_form_root_single_file(self):
+        """根单文件源 → source_root='.'，且登记 source_file（条目7）"""
+        self.write("draft/draft.md", DRAFT_V1)
+        self.write("paper.docx", binary=b"PK\x03\x04stub")
+        code, js, err = run_setup(self.root, "--file",
+                                  os.path.join("paper1", "draft", "draft.md"),
+                                  "--doctype", "full-paper")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.cfg()["versions"]["v1"]["source_root"], ".")
+        self.assertEqual(self.cfg()["versions"]["v1"]["source_file"], "paper.docx")
+
+    def test_v1_form_latex_dir(self):
+        """多文件 LaTeX 整包入 v1/ → source_root='v1'"""
+        self.write("draft/draft.md", DRAFT_V1)
+        self.write("v1/main.tex", content="\\documentclass{article}\n")
+        self.write("v1/chapters/ch1.tex", content="chapter\n")
+        code, js, err = run_setup(self.root, "--file",
+                                  os.path.join("paper1", "draft", "draft.md"),
+                                  "--doctype", "full-paper")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.cfg()["versions"]["v1"]["source_root"], "v1")
+
+    def test_vn_source_root_and_legacy_compat(self):
+        """v2+ → source_root='vN'；旧 sources/vN 目录仍在时只读兼容"""
+        self.write("draft/draft.md", DRAFT_V1)
+        self.write("draft/draft-v2.md", DRAFT_V1)
+        run_setup(self.root, "--file", os.path.join("paper1", "draft", "draft.md"),
+                  "--doctype", "thesis")
+        self.write("v2/paper.docx", binary=b"PK\x03\x04stub")
+        _, js, _ = run_setup(self.root, "--file",
+                             os.path.join("paper1", "draft", "draft-v2.md"),
+                             "--re-review")
+        self.assertEqual(js["version"], "v2")
+        self.assertEqual(self.cfg()["versions"]["v2"]["source_root"], "v2")
+
+        # 旧形态：sources/v2 存在、v2 不存在 → 只读兼容 sources/v2
+        paper2 = os.path.join(self.root, "paper2")
+        os.makedirs(os.path.join(paper2, "draft"))
+        os.makedirs(os.path.join(paper2, "sources", "v2"))
+        for rel in ("draft/draft.md", "draft/draft-v2.md"):
+            with open(os.path.join(paper2, rel), "w", encoding="utf-8") as f:
+                f.write(DRAFT_V1)
+        run_setup(self.root, "--file", os.path.join("paper2", "draft", "draft.md"),
+                  "--doctype", "thesis")
+        run_setup(self.root, "--file", os.path.join("paper2", "draft", "draft-v2.md"))
+        with open(os.path.join(paper2, ".review", "config.json"),
+                  encoding="utf-8") as f:
+            cfg2 = json.load(f)
+        self.assertEqual(cfg2["versions"]["v2"]["source_root"], "sources/v2")
+        # 旧结构未迁移 → 不盖 flat-v2.1 章（migrate_layout 识别用）
+        self.assertNotEqual(cfg2.get("layout"), "flat-v2.1")
+
+    def test_guard_ignores_layout_dirs_and_old_v1_source(self):
+        """护栏忽略 v1/ vN/ draft/ response/ reports/ figures/ media/；
+        mtime 早于 r1 开跑时间的 v1 既有源不误报（条目7）"""
+        self.write("draft/draft.md", DRAFT_V1)
+        old_src = self.write("paper.docx", binary=b"PK\x03\x04stub")
+        # 把源文件 mtime 拨早（早于即将记录的 r1 started_at）
+        os.utime(old_src, (1000000000, 1000000000))
+        run_setup(self.root, "--file", os.path.join("paper1", "draft", "draft.md"),
+                  "--doctype", "thesis")
+        for d in ("v2", "response", "reports", "figures", "media"):
+            os.makedirs(os.path.join(self.paper, d), exist_ok=True)
+        self.write("v2/new.docx", binary=b"PK\x03\x04stub")   # 目录内不报
+        _, js, _ = run_setup(self.root, "--file",
+                             os.path.join("paper1", "draft", "draft.md"))
+        self.assertFalse(js["needs_source_confirmation"], js.get("untracked_sources"))
+        # 根目录出现真正的新源文件（mtime 晚于 r1）→ 仍须报
+        self.write("paper_v2.docx", binary=b"PK\x03\x04stub")
+        _, js2, _ = run_setup(self.root, "--file",
+                              os.path.join("paper1", "draft", "draft.md"))
+        self.assertTrue(js2["needs_source_confirmation"])
+        self.assertIn("paper_v2.docx", js2["untracked_sources"])
+
+    def test_index_created_at_project_root(self):
+        self.write("draft/draft.md", DRAFT_V1)
+        run_setup(self.root, "--file", os.path.join("paper1", "draft", "draft.md"),
+                  "--doctype", "full-paper")
+        idx = os.path.join(self.root, "INDEX.md")
+        self.assertTrue(os.path.isfile(idx))
+        with open(idx, encoding="utf-8") as f:
+            head = f.read()
+        self.assertIn("| 稿件 |", head)
+
+
+class TestNewCliFlags(unittest.TestCase):
+    """v2.1 §十一 第13条：--source/--format/--focus/--no-fix；第21条 docx 校验；第23条非md守卫"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+        with open(os.path.join(self.dir, "draft.md"), "w", encoding="utf-8") as f:
+            f.write(DRAFT_V1)
+        with open(os.path.join(self.dir, "src.docx"), "wb") as f:
+            f.write(b"PK\x03\x04stub")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_source_format_passthrough(self):
+        code, js, err = run_setup(self.dir, "--file", "draft.md",
+                                  "--doctype", "full-paper",
+                                  "--source", "src.docx", "--format", "docx")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(js["source"].endswith("src.docx"))
+        self.assertEqual(js["source_format"], "docx")
+        with open(os.path.join(self.dir, ".review", "config.json"),
+                  encoding="utf-8") as f:
+            cfg = json.load(f)
+        self.assertEqual(cfg["versions"]["v1"]["source_format"], "docx")
+        self.assertTrue(cfg["versions"]["v1"]["source"].endswith("src.docx"))
+
+    def test_format_inferred_from_extension(self):
+        _, js, _ = run_setup(self.dir, "--file", "draft.md", "--doctype", "full-paper",
+                             "--source", "src.docx")
+        self.assertEqual(js["source_format"], "docx")
+
+    def test_source_missing_exit2(self):
+        code, _, err = run_setup(self.dir, "--file", "draft.md",
+                                 "--source", "nope.docx")
+        self.assertEqual(code, 2)
+        self.assertIn("--source 不存在", err)
+
+    def test_format_without_source_exit2(self):
+        code, _, err = run_setup(self.dir, "--file", "draft.md", "--format", "tex")
+        self.assertEqual(code, 2)
+        self.assertIn("--format 须与 --source", err)
+
+    def test_focus_and_no_fix_recorded(self):
+        code, js, err = run_setup(self.dir, "--file", "draft.md",
+                                  "--doctype", "full-paper",
+                                  "--focus", "panel", "--no-fix")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(js["focus"], "panel")
+        self.assertTrue(js["no_fix"])
+        with open(os.path.join(self.dir, ".review", "config.json"),
+                  encoding="utf-8") as f:
+            cfg = json.load(f)
+        self.assertEqual(cfg["rounds"]["r1"]["focus"], "panel")
+        self.assertTrue(cfg["rounds"]["r1"]["no_fix"])
+
+    def test_focus_invalid_exit2(self):
+        code, _, _ = run_setup(self.dir, "--file", "draft.md", "--focus", "stage3")
+        self.assertEqual(code, 2)
+
+    def test_non_md_input_guided_to_step00(self):
+        """条目23：直接把 .docx 交给 setup_env → 明确指引先走 Step 0.0 转换"""
+        code, js, _ = run_setup(self.dir, "--file", "src.docx")
+        self.assertEqual(code, 1)
+        self.assertTrue(any("Step 0.0" in p for p in js["problems"]), js)
+
+    def test_expert_comments_docx_invalid_zip_exit2(self):
+        """条目21：docx 原生支持，但伪 docx（非 zip）给明确错误"""
+        with open(os.path.join(self.dir, "expert.docx"), "wb") as f:
+            f.write(b"not a zip at all")
+        code, _, err = run_setup(self.dir, "--file", "draft.md",
+                                 "--expert-comments", "expert.docx")
+        self.assertEqual(code, 2)
+        self.assertIn("不是有效 docx", err)
 
 
 if __name__ == "__main__":

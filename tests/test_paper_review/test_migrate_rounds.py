@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""test_migrate_rounds.py — migrate_rounds.py 存量迁移单元测试（q10 原型树）
+"""test_migrate_rounds.py — migrate_rounds.py 存量迁移单元测试（q10 原型树，v2.1 扁平结构）
 
 覆盖：
-  - dry-run（缺省）：moves 计划（源→sources/v2、draft.md→draft-v2.md、
-    response*.md→根、q10/.review 扁平产物→r1/、q10-1/.review→r2/）且文件系统零改动
-  - --confirm：文件实际到位、config.json schema 2 完整（doctype/versions/rounds）、
-    chain.md 骨架创建、q10-1 目录保留且 warnings 提示手工删除
+  - dry-run（缺省）：moves 计划（步骤0 根 draft*.md→draft/、源→v2、
+    draft.md→draft/draft-v2.md、response*.md→response/、q10/.review 扁平产物→r1/、
+    q10-1/.review→r2/）且文件系统零改动
+  - --confirm：文件实际到位、config.json schema 2 + layout=flat-v2.1 完整
+    （doctype/versions/rounds）、chain.md 骨架创建、q10-1 目录保留且 warnings 提示手工删除
   - 既有 config.json（含 exemptions）合并：exemptions/withdrawals/adjudications 保留
+  - 旧结构就地规范化（兼容 v2.0 sources/vK）：sources/v2→v2、根 draft-v2.md→draft/
   - 参数错误 exit 2：--paper-dir / --new-dir 不存在、--new-version < 2
   - {new_dir} 无可迁移文件 → warnings 提示但仍 exit 0 且回填 config
 
@@ -89,15 +91,18 @@ class TestDryRun(unittest.TestCase):
         self.assertNotIn("moved", js)
         pairs = {(m["from"], m["to"]) for m in js["moves"]}
         expected = {
-            # 步骤1：源文件 → sources/v2/
+            # 步骤0：paper_dir 根草稿 → draft/
+            (px(os.path.join(self.q10, "draft.md")),
+             px(os.path.join(self.q10, "draft", "draft.md"))),
+            # 步骤1：源文件 → v2/
             (px(os.path.join(self.q10_1, "paper.docx")),
-             px(os.path.join(self.q10, "sources", "v2", "paper.docx"))),
-            # 步骤2：draft.md → draft-v2.md
+             px(os.path.join(self.q10, "v2", "paper.docx"))),
+            # 步骤2：draft.md → draft/draft-v2.md
             (px(os.path.join(self.q10_1, "draft.md")),
-             px(os.path.join(self.q10, "draft-v2.md"))),
-            # 步骤3：response*.md → 根目录（保留原名）
+             px(os.path.join(self.q10, "draft", "draft-v2.md"))),
+            # 步骤3：response*.md → response/（保留原名）
             (px(os.path.join(self.q10_1, "response-v2.md")),
-             px(os.path.join(self.q10, "response-v2.md"))),
+             px(os.path.join(self.q10, "response", "response-v2.md"))),
             # 步骤4：q10/.review 扁平旧产物 → r1/
             (px(os.path.join(self.q10, ".review", "deai_log.md")),
              px(os.path.join(self.q10, ".review", "r1", "deai_log.md"))),
@@ -111,14 +116,17 @@ class TestDryRun(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(pairs),
                         "缺失计划: %s" % (expected - pairs))
-        # dry-run 计划中的 config 已含 response 映射
-        self.assertEqual(js["config"]["versions"]["v2"]["response"], "response-v2.md")
+        # dry-run 计划中的 config 已含 response 映射（v2.1 路径口径）
+        self.assertEqual(js["config"]["versions"]["v2"]["response"],
+                         "response/response-v2.md")
+        self.assertEqual(js["config"]["layout"], "flat-v2.1")
         # 文件系统零改动
         self.assertTrue(os.path.isfile(os.path.join(self.q10_1, "paper.docx")))
         self.assertTrue(os.path.isfile(os.path.join(self.q10_1, "draft.md")))
         self.assertTrue(os.path.isfile(os.path.join(self.q10_1, "response-v2.md")))
         self.assertTrue(os.path.isfile(os.path.join(self.q10, ".review", "deai_log.md")))
-        self.assertFalse(os.path.exists(os.path.join(self.q10, "sources")))
+        self.assertFalse(os.path.exists(os.path.join(self.q10, "v2")))
+        self.assertFalse(os.path.exists(os.path.join(self.q10, "draft")))
         self.assertFalse(os.path.exists(os.path.join(self.q10, ".review", "r1")))
         self.assertFalse(os.path.exists(os.path.join(self.q10, ".review", "r2")))
         self.assertFalse(os.path.exists(os.path.join(self.q10, ".review", "config.json")))
@@ -150,9 +158,11 @@ class TestConfirm(unittest.TestCase):
         self.assertTrue(js["success"])
         self.assertFalse(js["dry_run"])
         self.assertEqual(js["moved"], len(js["moves"]))
-        # 文件实际到位
-        for rel in [os.path.join("sources", "v2", "paper.docx"),
-                    "draft-v2.md", "response-v2.md",
+        # 文件实际到位（v2.1 扁平结构）
+        for rel in [os.path.join("v2", "paper.docx"),
+                    os.path.join("draft", "draft.md"),
+                    os.path.join("draft", "draft-v2.md"),
+                    os.path.join("response", "response-v2.md"),
                     os.path.join(".review", "r1", "deai_log.md"),
                     os.path.join(".review", "r1", "merged_findings.md"),
                     os.path.join(".review", "r2", "merged_findings.md"),
@@ -161,19 +171,22 @@ class TestConfirm(unittest.TestCase):
                             "缺文件: %s" % rel)
         # 旧扁平产物已移走
         self.assertFalse(os.path.exists(os.path.join(self.q10, ".review", "deai_log.md")))
+        self.assertFalse(os.path.exists(os.path.join(self.q10, "draft.md")))
         # config.json schema 完整
         cfg_path = os.path.join(self.q10, ".review", "config.json")
         self.assertTrue(os.path.isfile(cfg_path))
         with open(cfg_path, encoding="utf-8-sig") as f:
             cfg = json.load(f)
         self.assertEqual(cfg["schema"], 2)
+        self.assertEqual(cfg["layout"], "flat-v2.1")
         self.assertEqual(cfg["paper_dir"], px(self.q10))
         self.assertEqual(cfg["doctype"], "problem-collection")
         self.assertEqual(cfg["versions"]["v1"],
-                         {"source_root": ".", "draft": "draft.md", "response": None})
-        self.assertEqual(cfg["versions"]["v2"]["source_root"], "sources/v2")
-        self.assertEqual(cfg["versions"]["v2"]["draft"], "draft-v2.md")
-        self.assertEqual(cfg["versions"]["v2"]["response"], "response-v2.md")
+                         {"source_root": ".", "draft": "draft/draft.md",
+                          "response": None})
+        self.assertEqual(cfg["versions"]["v2"]["source_root"], "v2")
+        self.assertEqual(cfg["versions"]["v2"]["draft"], "draft/draft-v2.md")
+        self.assertEqual(cfg["versions"]["v2"]["response"], "response/response-v2.md")
         self.assertEqual(cfg["current_version"], "v2")
         self.assertEqual(cfg["rounds"], {"r1": {"version": "v1"},
                                          "r2": {"version": "v2"}})
@@ -222,11 +235,59 @@ class TestConfirm(unittest.TestCase):
         # 新映射补齐
         self.assertEqual(cfg["schema"], 2)
         self.assertEqual(cfg["doctype"], "problem-collection")
-        self.assertEqual(cfg["versions"]["v2"]["source_root"], "sources/v2")
+        self.assertEqual(cfg["versions"]["v2"]["source_root"], "v2")
         self.assertEqual(cfg["current_round"], "r2")
         # config.json 未被误移入 r1/
         self.assertFalse(os.path.exists(
             os.path.join(self.q10, ".review", "r1", "config.json")))
+
+    def test_confirm_normalizes_existing_versions(self):
+        """既有 config 的 v2.0 路径口径（sources/vK、根 draft）合并时规范化"""
+        cfg_path = os.path.join(self.q10, ".review", "config.json")
+        old = {
+            "schema": 2,
+            "doctype": "thesis",
+            "versions": {"v2": {"source_root": "sources/v2",
+                                "draft": "draft-v2.md", "response": None}},
+            "rounds": {"r1": {"version": "v1"}},
+            "exemptions": [], "withdrawals": [], "adjudications": [],
+        }
+        write(cfg_path, json.dumps(old, ensure_ascii=False) + "\n")
+        code, js, err = run(["--paper-dir", self.q10, "--new-dir", self.q10_1,
+                             "--confirm"])
+        self.assertEqual(code, 0, err)
+        with open(cfg_path, encoding="utf-8-sig") as f:
+            cfg = json.load(f)
+        merged_v2 = cfg["versions"]["v2"]
+        # 既有条目 setdefault 保留，但路径口径已规范化
+        self.assertEqual(merged_v2["source_root"], "v2")
+        self.assertEqual(merged_v2["draft"], "draft/draft-v2.md")
+        self.assertEqual(cfg["layout"], "flat-v2.1")
+        self.assertEqual(cfg["doctype"], "thesis")   # 未显式指定 → 继承
+
+    def test_legacy_sources_dir_normalized(self):
+        """v2.0 旧结构（sources/v2 + 根 draft-v2.md）就地规范化为 v2.1 扁平"""
+        write(os.path.join(self.q10, "sources", "v2", "paper.docx"), "old v2 src\n")
+        write(os.path.join(self.q10, "draft-v2.md"), "# v2 工作稿（旧位置）\n")
+        empty_new = os.path.join(self.tmp.name, "papers", "q10-empty")
+        os.makedirs(empty_new)
+        code, js, err = run(["--paper-dir", self.q10, "--new-dir", empty_new,
+                             "--new-version", "3", "--confirm"])
+        self.assertEqual(code, 0, err)
+        # sources/v2 → v2；根 draft*.md → draft/
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.q10, "v2", "paper.docx")))
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.q10, "draft", "draft-v2.md")))
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.q10, "draft", "draft.md")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self.q10, "sources", "v2", "paper.docx")))
+        # 幂等：再跑一次无新移动
+        code2, js2, _ = run(["--paper-dir", self.q10, "--new-dir", empty_new,
+                             "--new-version", "3", "--confirm"])
+        self.assertEqual(code2, 0)
+        self.assertEqual(js2["moved"], 0)
 
     def test_confirm_keeps_existing_chain(self):
         chain_path = os.path.join(self.q10, ".review", "chain.md")

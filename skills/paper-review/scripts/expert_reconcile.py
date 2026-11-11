@@ -28,8 +28,10 @@
       --result confirmed|rejected --evidence TEXT [--severity P0|P1|P2]
   python expert_reconcile.py --run-dir DIR show
 
-  init    解析专家意见 md（支持 `1.` `1、` `- ` `* ` 开头行及 `E-N` 显式编号，
-          多行续接归并到前一条目），分配 ID E-1..E-n
+  init    解析专家意见（.md 或 .docx，docx 用 zipfile+ElementTree 原生解析
+          word/document.xml，零第三方依赖；Word 自动列表段落转 `- ` 条目行）。
+          支持 `1.` `1、` `- ` `* ` 开头行及 `E-N` 显式编号，
+          多行续接归并到前一条目，分配 ID E-1..E-n
   match   与面板合并发现对账（--findings 缺省 {run_dir}/merged_findings.md），
           重写条目 state 并生成/覆盖 {run_dir}/expert_reconcile.md
   verify  核实隔离区条目：confirmed（须 --severity 与 --evidence）计入，
@@ -65,6 +67,8 @@ import os
 import re
 import sys
 import unicodedata
+import zipfile
+import xml.etree.ElementTree as ET
 from collections import Counter
 
 # 修复 Windows 下 GBK 编码问题，强制 UTF-8 输出
@@ -164,6 +168,40 @@ def read_text_file(path):
     fail("无法解码文件（已尝试 utf-8-sig/utf-8/gbk）: %s" % path, code=1)
 
 
+W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def read_docx_text(path):
+    """docx → 纯文本：zipfile+ElementTree 解析 word/document.xml（无第三方依赖，
+    与 conversion_audit.count_docx 同一模式）。每个 w:p 段落输出一行（段内 w:t
+    拼接）；Word 自动编号/项目符号段落（编号在 numPr 而不在正文）转 `- ` 前缀，
+    使 parse_comments 能识别为条目。表格单元格文本按段落同样提取。"""
+    try:
+        with zipfile.ZipFile(path) as z:
+            xml_bytes = z.read("word/document.xml")
+        root = ET.fromstring(xml_bytes)
+    except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError) as e:
+        fail("无法解析 docx（%s）: %s；请确认为有效 Word 文件，"
+             "或先转换为 .md 再对账" % (path, e), code=1)
+    lines = []
+    for para in root.iter(W_NS + "p"):
+        text = "".join(t.text or "" for t in para.iter(W_NS + "t")).strip()
+        if not text:
+            lines.append("")                   # 空段落 → 空行（终止多行续接）
+            continue
+        if para.find("%spPr/%snumPr" % (W_NS, W_NS)) is not None:
+            text = "- " + text                 # Word 列表段落 → md 条目行
+        lines.append(text)
+    return "\n".join(lines)
+
+
+def read_comments_file(path):
+    """专家意见入口：.docx 走原生解析（v2.1 门禁 G2 裁决），其余按文本读取"""
+    if path.lower().endswith(".docx"):
+        return read_docx_text(path)
+    return read_text_file(path)
+
+
 def items_path(run_dir):
     return os.path.join(run_dir, "expert_items.json")
 
@@ -236,7 +274,7 @@ def parse_comments(content):
 def do_init(args):
     if not os.path.isfile(args.comments):
         fail("专家意见文件不存在: %s" % args.comments)
-    entries = parse_comments(read_text_file(args.comments))
+    entries = parse_comments(read_comments_file(args.comments))
     if not entries:
         print("警告：未解析出任何专家意见条目，请检查文件格式", file=sys.stderr)
     data = {
@@ -476,9 +514,10 @@ def main():
                         help="运行输出目录（expert_items.json / expert_reconcile.md 所在）")
     sub = parser.add_subparsers(dest="action", required=True)
 
-    p_init = sub.add_parser("init", help="解析专家意见 md → expert_items.json（E-1..E-n）")
+    p_init = sub.add_parser("init", help="解析专家意见 md/docx → expert_items.json（E-1..E-n）")
     p_init.add_argument("--comments", metavar="FILE", required=True,
-                        help="专家意见 markdown 文件（支持 1. / 1、 / - / * / E-N 条目）")
+                        help="专家意见文件 .md 或 .docx（docx 原生解析，零第三方依赖；"
+                             "支持 1. / 1、 / - / * / E-N 条目及 Word 列表段落）")
 
     p_match = sub.add_parser("match", help="与面板合并发现对账（阶段3合并完成后）")
     p_match.add_argument("--findings", metavar="FILE", default=None,

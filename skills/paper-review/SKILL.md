@@ -42,7 +42,7 @@ v2.0 架构（对比 v1.x）：原「多智能体研讨+同行评审」两阶段
 
 | 参数 | 说明 | 默认 |
 |------|------|------|
-| `<文件路径>` | 待审查论文 Markdown（draft.md=v1；draft-vN.md=vN） | — |
+| `<文件路径>` | 待审查论文 Markdown（`<paper>/draft/draft.md`=v1；`<paper>/draft/draft-vN.md`=vN）。`.pdf/.docx/.tex/目录` 等非 md 输入先按 **Step 0.0 输入类型分派**转换出 `draft/draft.md` 再进流水线 | — |
 | `--section X.Y` | 仅审查指定小节（自动覆盖子小节） | 全文 |
 | `--source PATH` | 源文件/目录（tex 目录 / .docx / pdf提取.txt），启用三轨定位 | 不启用 |
 | `--format FMT` | 源格式 `tex`/`docx`/`pdf` | 自动推断 |
@@ -52,15 +52,17 @@ v2.0 架构（对比 v1.x）：原「多智能体研讨+同行评审」两阶段
 | `--rounds N` | 收敛循环最大轮数 | 3 |
 | `--no-fix` | 只审查报告，不修改稿件（跳过阶段4/5） | 执行修改 |
 | `--re-review` | 核验式复审（见 references/re-review-protocol.md） | 否 |
-| `--response FILE` | 修订版随附作者回复信（复审 R&R 追溯用） | 无 |
+| `--response FILE` | 修订版随附作者回复信（`<paper>/response/response-vN.md`，复审 R&R 追溯用） | 无 |
 | `--panel` | 复审面板范围：default=裁剪席位 / full=七席全开 | default |
 | `--new-run` | 对同一版本强制开启新轮次 r<N+1>（全量重审） | 复用当前轮次 |
-| `--expert-comments FILE` | 外部专家意见（md/提取文本），阶段1后启动对账 | 无 |
+| `--expert-comments FILE` | 外部专家意见（`.md` 或 `.docx`；docx 由 expert_reconcile.py 原生解析，零第三方依赖），阶段1后启动对账 | 无 |
 
-**路径占位符约定**：`{SKILL_DIR}` = 本 SKILL.md 所在目录；`{file_path}` `{review_dir}`
-`{run_dir}` `{section_range}` `{rounds_max}` 等取自 Step 0 的 JSON 输出
-（`review_dir`=`.review/`，跨轮共享 config/chain/RESUME；`run_dir`=`.review/r<N>/`，
-本轮全部产物）。**步骤间数据一律通过文件传递，不依赖对话记忆**。
+**路径占位符约定**：`{SKILL_DIR}` = 本 SKILL.md 所在目录；`{file_path}` `{paper_dir}`
+`{review_dir}` `{run_dir}` `{section_range}` `{rounds_max}` 等取自 Step 0 的 JSON 输出
+（`paper_dir`=论文目录，v2.1 扁平结构下源/草稿/版本/回复/报告/过程自包含，
+从 `draft/` 子目录自动反推；`review_dir`=`<paper>/.review/`，跨轮共享
+config/chain/RESUME；`run_dir`=`<paper>/.review/r<N>/`，本轮全部产物）。
+**步骤间数据一律通过文件传递，不依赖对话记忆**。
 
 ## 纪律规则（强制，任何阶段不得违反）
 
@@ -80,39 +82,51 @@ v2.0 架构（对比 v1.x）：原「多智能体研讨+同行评审」两阶段
    只重试该代理（≤3次），**不得重跑整阶段**（全部阶段产物已落盘）
 10. **doctype 禁止臆测**：未声明且无法继承时必须 AskUserQuestion 确认后才继续
 
-## 数据流（.review/ 目录，v2.0）
+## 数据流（v2.1 扁平结构：每篇论文一目录）
 
 ```
-<论文目录>/
-├── draft.md / draft-vN.md       ← 工作稿（v1 无后缀在根目录）
-├── response-vN.md               ← 作者回复信（可选输入）
-├── sources/vN/                  ← v2+ 作者回包原样存放（复审出现时创建）
-└── .review/
-    ├── config.json              ← 跨轮状态唯一权威源（doctype/版本映射/轮次/
-    │                               豁免清单/撤回记录/用户裁决）
-    ├── chain.md                 ← 版本谱系（模板 templates/chain.md，每轮更新）
-    ├── RESUME.md                ← 续跑快照（resume.py --run-dir {review_dir}）
-    └── r<N>/                    ← 第 N 次审阅运行的全部产物
-        ├── seat_config.md       ← 1a 席位配置卡
-        ├── seat_reports/S1….md  ← 1b 七席独立报告
-        ├── debate_summary.md    ← 1c 讨论与撤回记录
-        ├── decision_letter.md   ← 1d Decision Letter
-        ├── revision_roadmap.md  ← 1d 权威清单一（内容，R-#）
-        ├── deai_audits/*.md     ← 2a 四技能审计清单
-        ├── deai_cross.md        ← 2b 交叉质询矩阵
-        ├── deai_confirmed.md    ← 2c 权威清单二（语言，D-#）
-        ├── deai_exempt.md       ← 2c 豁免清单（误报拦截留痕）
-        ├── expert_items.json / expert_reconcile.md ← 专家对账（如有）
-        ├── merged_findings.md   ← 阶段3 合并（含 S-# 交叉引用）
-        ├── anchor_requests.json / anchor_map.json  ← 三轨定位（--source 时）
-        ├── conversion_audit.md / bib_lint.md       ← Step 0 前置审计
-        ├── diff_scope.md / rr_matrix.md            ← 复审专用
-        ├── revision_log.md / convergence.md        ← 阶段4/5
-        └── final_report.md                         ← Step 6
+<工程根>/                          ← 工作空间根
+├── INDEX.md                       ← 审查索引（一行一篇；setup_env 缺则创建，Step 6 追加）
+└── <paper-name>/                  ← 论文目录（{paper_dir}，自包含）
+    ├── <v1单文件源> 或 v1/         ← v1 源二选一：单文件留根（source_root="."）
+    │                                 或多文件 LaTeX 整体入 v1/（source_root="v1"），不得并存
+    ├── vN/                        ← v2+ 作者回包原样存放（替代 sources/vN；开审后不可变）
+    ├── draft/                     ← 工作稿（转换可重建产物，不是源，不得作唯一存档）
+    │   ├── draft.md / draft-vN.md ← 当前工作副本 / 版本快照
+    │   └── figures/               ← 稿件图片（统一收敛；兼容 media/ 与 figures/ 双形态）
+    ├── response/                  ← 作者回复信 response-vN.md；外部专家意见 expert-*.md
+    ├── reports/                   ← 交付报告副本 rN-审阅报告.md / rN-复审报告.md
+    │                                 （Step 6 生成，复制而非软链接；过程记录仍在 r<N>/）
+    └── .review/                   ← 过程状态（保持隐藏，不与阅读材料混排）
+        ├── config.json            ← 跨轮状态唯一权威源（doctype/版本映射/轮次/
+        │                             豁免清单/撤回记录/用户裁决；layout="flat-v2.1"）
+        ├── chain.md               ← 版本谱系（模板 templates/chain.md，每轮更新）
+        ├── RESUME.md              ← 续跑快照（resume.py --run-dir {review_dir}）
+        └── r<N>/                  ← 第 N 次审阅运行的全部产物
+            ├── seat_config.md       ← 1a 席位配置卡
+            ├── seat_reports/S1….md  ← 1b 七席独立报告
+            ├── debate_summary.md    ← 1c 讨论与撤回记录
+            ├── decision_letter.md   ← 1d Decision Letter
+            ├── revision_roadmap.md  ← 1d 权威清单一（内容，R-#）
+            ├── deai_audits/*.md     ← 2a 四技能审计清单
+            ├── deai_cross.md        ← 2b 交叉质询矩阵
+            ├── deai_confirmed.md    ← 2c 权威清单二（语言，D-#）
+            ├── deai_exempt.md       ← 2c 豁免清单（误报拦截留痕）
+            ├── expert_items.json / expert_reconcile.md ← 专家对账（如有）
+            ├── merged_findings.md   ← 阶段3 合并（含 S-# 交叉引用）
+            ├── anchor_requests.json / anchor_map.json  ← 三轨定位（--source 时）
+            ├── conversion_audit.md / bib_lint.md       ← Step 0 前置审计
+            ├── diff_scope.md / rr_matrix.md            ← 复审专用
+            ├── revision_log.md / convergence.md        ← 阶段4/5
+            └── final_report.md                         ← Step 6
 ```
 
-v1.x 旧产物（扁平 agent_reports/、peer_reports.md 等）只读兼容，不迁移；
-存量「另建目录」形态用 scripts/migrate_rounds.py 迁移。
+v1.x 旧产物（扁平 agent_reports/、peer_reports.md 等）与 v2.0 路径口径
+（根目录 draft.md、sources/vN/、papers/ + output/ 工作空间）只读兼容，不强制迁移。
+存量工作空间按需迁移：
+- 「另建目录」轮次形态 → `scripts/migrate_rounds.py`（就地规范化为扁平口径）
+- `papers/` + `output/` 旧工作空间 → `scripts/migrate_layout.py`
+  （dry-run/apply/rollback；人工判定项只列 report，绝不猜）
 
 ---
 
@@ -120,16 +134,35 @@ v1.x 旧产物（扁平 agent_reports/、peer_reports.md 等）只读兼容，�
 
 ### Step 0 — 环境初始化 + 前置审计
 
-0.1 执行：`Bash("python {SKILL_DIR}/scripts/setup_env.py --file <文件路径> [--section X.Y] [--rounds N] [--doctype TYPE] [--re-review] [--response FILE] [--expert-comments FILE] [--quick] [--panel P] [--new-run]")`
+0.0 **输入类型分派**（`<文件路径>` 非 .md 时必做；.md 输入跳过本步）：
+`{paper_dir}` = 输入文件所在目录（输入为目录时即该目录本身）。先转换出
+`{paper_dir}/draft/draft.md` 再进流水线：
 
-- 解析 stdout JSON：`file_path/section_range/review_dir/run_dir/rounds_max/version/round/doctype/applied_criteria/estimate` 及三个确认标志
+- **.docx**：执行：`Bash("pandoc <src.docx> -t gfm --extract-media={paper_dir}/draft -o {paper_dir}/draft/draft.md")`；
+  随后把 `{paper_dir}/draft/media/` 整体移为 `{paper_dir}/draft/figures/`，
+  并改写 draft.md 内图片相对路径（`media/` → `figures/`）
+- **.tex / 源目录**：执行：`Bash("pandoc <main.tex> -t gfm -o {paper_dir}/draft/draft.md")`
+  （多文件工程先确认主文件）；源按 v1 二选一规则原样保留（单文件留根 / 工程整体入 v1/）
+- **.pdf**：用 PyMuPDF 逐页提取全文写入 `{paper_dir}/draft/draft.md`，每页植入
+  `%% [PDF p.N]` 页标记（anchor_map pdf 源坐标唯一切分依据，见
+  references/format-notes.md 第4条）；图片按尺寸过滤导出到 `{paper_dir}/draft/figures/`
+- **转换留痕**：实际转换命令与参数暂记，0.4 生成 conversion_audit.md 后在其末尾
+  追加「## 转换链路」节写入（可复现性铁律）
+- **验证**：draft.md 存在且非空；按 references/format-notes.md 抽查转换质量
+  （转换破损记入报告，不计入 P0/P1/P2）；此后流水线一律以 draft.md 为 `{file_path}`
+
+setup_env.py 收到非 md 的 `--file` 时拒绝进入流水线（exit 1）并提示回到本步。
+
+0.1 执行：`Bash("python {SKILL_DIR}/scripts/setup_env.py --file <文件路径> [--section X.Y] [--rounds N] [--doctype TYPE] [--source PATH] [--format tex|docx|pdf] [--focus panel|de-ai] [--no-fix] [--re-review] [--response FILE] [--expert-comments FILE] [--quick] [--panel P] [--new-run]")`
+
+- 解析 stdout JSON：`file_path/paper_dir/layout/index_path/section_range/review_dir/run_dir/rounds_max/version/round/doctype/source/source_format/focus/no_fix/applied_criteria/estimate` 及三个确认标志
 - **验证**：`success == true`；否则报告 `problems` 并终止
 - **doctype 确认（needs_doctype_confirmation=true 时，纪律10）**：
   执行：`AskUserQuestion(questions=[{"question": "未声明稿件类型。检测线索：{doctype_hints}。请确认本稿类型（决定结构检查准则，见 references/doctype-criteria.md）", "header": "稿件类型", "options": [{"label": "full-paper 完整论文"}, {"label": "thesis 学位论文"}, {"label": "proposal/problem-collection 申报/征集"}, {"label": "其它（extended-abstract/technical-report/section-draft/review/other:描述）"}]}])`
   → 用户选定后**重跑 0.1 带 --doctype**（同轮更新，不递增轮次）
 - **覆盖护栏（needs_source_confirmation=true 时，§九规则2）**：
-  执行：`AskUserQuestion(questions=[{"question": "根目录检测到未登记源文件 {untracked_sources}，且已有历史审阅轮次。这是新修订版吗？", "header": "版本确认", "options": [{"label": "是修订版：移入 sources/vN/ 并按 vN 审"}, {"label": "不是：忽略该文件继续"}, {"label": "替换 v1 源（我确认覆盖）"}]}])`
-  → 修订版：手工移动文件（Bash mv）后带 `--new-run` 重跑 0.1
+  执行：`AskUserQuestion(questions=[{"question": "论文目录检测到未登记源文件 {untracked_sources}，且已有历史审阅轮次。这是新修订版吗？", "header": "版本确认", "options": [{"label": "是修订版：移入 vN/ 并按 vN 审"}, {"label": "不是：忽略该文件继续"}, {"label": "替换 v1 源（我确认覆盖）"}]}])`
+  → 修订版：移入 `{paper_dir}/vN/`（Bash mv，作者回包原样、开审后不可变）后带 `--new-run` 重跑 0.1
 - **成本预估报告（§十⑪）**：向用户呈现 `estimate`（席位/代理数/预计墙钟/token 量级/
   建议）；若 recommendation 建议 --quick 而用户未指定，
   执行：`AskUserQuestion(questions=[{"question": "预估：{estimate摘要}。建议 {recommendation}，是否调整模式？", "header": "模式确认", "options": [{"label": "按建议执行"}, {"label": "维持正式模式（七席）"}, {"label": "改用 --quick（S1+S6）"}]}])`
@@ -156,7 +189,7 @@ PyMuPDF 抽文本 → find_tables 抽表 → 渲染页为 PNG 后 Read 图像。
 
 0.7 复审预处理（--re-review 时，见 references/re-review-protocol.md）：
 执行：`Read("{SKILL_DIR}/references/re-review-protocol.md")`；
-执行：`Bash("python {SKILL_DIR}/scripts/diff_scope.py --old <v(N-1)稿路径> --new {file_path} --output {run_dir}diff_scope.md")`
+执行：`Bash("python {SKILL_DIR}/scripts/diff_scope.py --old {paper_dir}/draft/draft-v(N-1).md --new {file_path} --output {run_dir}diff_scope.md")`
 - 继承项（doctype/豁免/撤回/裁决）由 config.json 自动生效；席位按协议裁剪
   （--panel full 恢复七席）
 
@@ -253,7 +286,7 @@ decision_letter.md 与 revision_roadmap.md（数值疑问标注「未复算（qu
 
 #### 专家意见对账（--expert-comments 时，1d 之后）
 
-执行：`Bash("python {SKILL_DIR}/scripts/expert_reconcile.py --run-dir {run_dir} init --comments <专家意见文件>")` →
+执行：`Bash("python {SKILL_DIR}/scripts/expert_reconcile.py --run-dir {run_dir} init --comments <专家意见文件.md|.docx>")` →
 阶段3 合并后执行 `match`，对每条「疑似遗漏」**读原文核实**后逐条
 `verify --id E-N --result confirmed|rejected --evidence …`（confirmed 须 --severity）。
 铁律：未核实的遗漏候选不得入报告（隔离区机制，脚本强制）。
@@ -394,10 +427,18 @@ await agent([
 程序）/ 专家意见对账表（如有）/ 阶段2 去AI（确认/豁免/质量评分）/ 合并发现与修改
 （三轨问题表）/ R&R 追溯矩阵（复审时，不得橡皮图章）/ 收敛状态 / 产物路径。
 
-6.4 chain.md 更新：按 `templates/chain.md` 在 `{review_dir}chain.md` 追加本轮一节
+6.4 交付副本与索引（v2.1 扁平结构，报告分两层）：
+- 执行：`Bash("mkdir -p {paper_dir}/reports && cp {run_dir}final_report.md {paper_dir}/reports/r{round}-审阅报告.md")`
+  （复审轮命名 `r{round}-复审报告.md`；**复制而非软链接**，交付副本与过程记录
+  `{run_dir}final_report.md` 内容一致）
+- 工程根 `{index_path}`（INDEX.md）追加/更新该篇一行（Edit；表头由 setup_env 创建）：
+  `| <paper-name> | {doctype} | r{round} | {Decision} | {YYYY-MM-DD} | <paper-name>/reports/r{round}-审阅报告.md |`
+  （报告路径相对工程根；同篇已有行则更新，不重复追加）
+
+6.5 chain.md 更新：按 `templates/chain.md` 在 `{review_dir}chain.md` 追加本轮一节
 （决议/评分轨迹/发现状态流转/裁决项/Integrity 进展）。
 
-6.5 RESUME 收尾：`resume.py --run-dir {review_dir} set --stage step6-report --status done`
+6.6 RESUME 收尾：`resume.py --run-dir {review_dir} set --stage step6-report --status done`
 + `check` 通过。
 
 ---
@@ -427,18 +468,19 @@ await agent([
 
 | 脚本 | 用途 | 调用时机 |
 |------|------|---------|
-| setup_env.py | 校验/章节定位/版本轮次路由/config.json/doctype 绑定/覆盖护栏/成本预估 | Step 0 |
+| setup_env.py | 校验/章节定位/版本轮次路由/config.json（layout=flat-v2.1）/doctype 绑定/v1 二选一检测/覆盖护栏/成本预估/非 md 输入分派指引/根 INDEX.md 创建 | Step 0 |
 | resume.py | RESUME.md 续跑快照 init/set/next/show/check | 各阶段边界 |
 | conversion_audit.py | 源侧 vs draft 结构计数，转换丢失清单 | Step 0 |
 | anchor_map.py | 三轨定位表 init/fill | Step 0 / 阶段3 |
 | bib_lint.py | GB/T 7714 引文格式确定性检查 | Step 0 |
 | diff_scope.py | v(N-1)→vN 变更区域定位 | Step 0（复审） |
 | numeric_checks/ | S7 数值检查库（weighted_identity/table_sums/abstract_numbers/percent_basis） | 阶段1（S7） |
-| expert_reconcile.py | 专家意见对账 init/match/verify/show（隔离区强制核实） | 阶段1后/阶段3 |
+| expert_reconcile.py | 专家意见对账 init/match/verify/show（隔离区强制核实；--comments 支持 md/docx，docx 原生解析） | 阶段1后/阶段3 |
 | merge_findings.py | v2 双权威清单合并（R-#/D-#/S-#，撤回不复活）；--review-dir 走 v1 兼容模式 | 阶段3 |
 | track_revisions.py | 修改日志逐条 log / summary | 阶段4/5 |
 | convergence_check.py | 收敛/停滞判定 | 阶段5 |
-| migrate_rounds.py | 存量「另建目录」形态迁移（dry-run/--confirm） | 按需 |
+| migrate_rounds.py | 存量「另建目录」轮次形态迁移，就地规范化为 v2.1 扁平口径（dry-run/--confirm） | 按需 |
+| migrate_layout.py | 存量 `papers/`+`output/` 工作空间 → v2.1 每篇论文一目录（dry-run/apply/rollback；幂等；人工判定项只列 report 不猜测） | 按需 |
 | deai_audit.py | （v1 遗留）串行去AI日志；v2.0 流程不再使用，仅旧产物兼容 | — |
 
 ## 失败回退
