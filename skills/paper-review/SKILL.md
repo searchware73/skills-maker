@@ -22,7 +22,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-# paper-review — 论文审查技能（v2.0）
+# paper-review — 论文审查技能（v2.1）
 
 流水线：**Step 0 初始化 → 阶段1 合并面板（七席）→ 阶段2 去AI研讨 →
 阶段3 合并报告 → 阶段4 修改执行 → 阶段5 收敛循环 → Step 6 最终报告**。
@@ -32,6 +32,15 @@ v2.0 架构（对比 v1.x）：原「多智能体研讨+同行评审」两阶段
 零技能目录加载）；新增 doctype 准则绑定、同目录多版本/复审协议、RESUME 续跑、
 转换审计前置、数值检查库、引文 lint、专家意见对账、成本预估。
 阶段4/5 修改纪律与 v1.x 完全一致。
+
+v2.1 增补（对比 v2.0，G1–G4 四组落地）：目录扁平化为「每篇论文一目录 +
+工程根 INDEX.md」（migrate_layout.py 迁移存量，人工判定项只列不猜）；输入类型
+分派与 PDF 全文提取（extract_pdf.py，源侧计数回填 conversion_audit）；
+阶段1/2 各拆「独立产出 → 完整性门禁 → 会议/终裁」两段 Workflow
+（check_artifacts.py 只重派缺失席位，补派轨迹如实报告）；merged→锚点请求
+自动生成（build_anchor_requests.py）与 merge/anchor 条目静默丢失防护；
+交付前机器校验（validate_report.py，计数不靠人工同步）；专家意见 docx 原生解析
+与**交付后同轮追加对账**（reports/rN-综合审阅意见.md，不改原决议）。
 
 ## 用法
 
@@ -576,7 +585,7 @@ r{round} 报告**交付后**才收到外部专家意见时（Step 0 未声明 `-
 
 | 文件 | 用途 |
 |------|------|
-| final-report.md | 最终报告骨架（v2.0 全节：类型适配/完整性关切/对账表/三轨列） |
+| final-report.md | 最终报告骨架（v2.1 全节：类型适配/定位坐标与反查统计/数据完整性关切/专家对账表/席位与审计完整性/三轨列） |
 | chain.md | 版本谱系骨架（每轮追加） |
 
 ## 脚本清单（scripts/，均支持 --help，输出 JSON，UTF-8）
