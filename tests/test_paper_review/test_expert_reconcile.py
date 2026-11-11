@@ -508,5 +508,225 @@ class TestDocxComments(Base):
         self.assertIn("无法解析 docx", err)
 
 
+# ────────────────────────── report：交付后同轮追加对账（条目22，门禁 G2' 裁决） ──────────────────────────
+
+CHAIN_R1_R2 = """# 版本谱系 — paper-yu
+
+- doctype：thesis
+
+## r1（v1，2026-11-10）
+
+- 版本文件：draft/draft.md（hash: abcd1234）
+- 决议：Major Revision（映射评分 6）
+- 发现：P0 2 / P1 2 / P2 0；撤回 0 条
+
+## r2（v2，2026-11-11，核验式复审）
+
+- 决议：Accept（映射评分 9）
+"""
+
+INDEX_MD = """# 论文审查索引
+
+> 一行一篇（paper-review Step 6 追加；路径相对论文目录）。
+
+| 稿件 | doctype | 当前轮次 | 决议 | 日期 | 报告路径 |
+|------|---------|----------|------|------|----------|
+| paper-yu | thesis | r1 | Major Revision | 2026-11-10 | reports/r1-审阅报告.md |
+"""
+
+
+class TestReport(Base):
+    """report 子命令：rN-综合审阅意见.md + chain「专家对账」行（原决议不变）+ INDEX 同步。
+    夹具态：match 后 E-1/E-2/E-4 吻合、E-6 冲突、E-3/E-5/E-7/E-8 隔离区；
+    verify E-5 → confirmed P0（专家新增）、E-3 → rejected（多域客户端误判，he-paper 教训）。
+    面板基线 P0 2 / P1 2 / P2 0（FINDINGS 统计行）→ 合并后 P0 3 / P1 2 / P2 0，总计 5。"""
+
+    def setUp(self):
+        super().setUp()
+        self.paper_dir = os.path.join(self.dir, "paper-yu")
+        os.makedirs(os.path.join(self.paper_dir, "reports"), exist_ok=True)
+        os.makedirs(self.run_dir, exist_ok=True)
+        self.chain = os.path.join(self.run_dir, "chain.md")
+        with open(self.chain, "w", encoding="utf-8", newline="\n") as f:
+            f.write(CHAIN_R1_R2)
+        self.index = os.path.join(self.dir, "INDEX.md")
+        with open(self.index, "w", encoding="utf-8", newline="\n") as f:
+            f.write(INDEX_MD)
+
+    def prepare(self):
+        """init → match → verify（E-5 confirmed P0 / E-3 rejected）"""
+        self.do_init()
+        self.write_findings()
+        self.do_match()
+        code, js, err = self.do_verify("E-5", "confirmed",
+                                       evidence="原文核对参考文献表，确无 [12] 条目",
+                                       severity="P0")
+        self.assertEqual(code, 0, err)
+        code, js, err = self.do_verify("E-3", "rejected",
+                                       evidence="全文不存在「多域客户端」一词，专家误判")
+        self.assertEqual(code, 0, err)
+
+    def do_report(self, round_no=1, paper_dir=None):
+        args = ["--run-dir", self.run_dir, "report",
+                "--paper-dir", paper_dir or self.paper_dir,
+                "--round", str(round_no)]
+        return run(args)
+
+    def read_report(self, round_no=1):
+        path = os.path.join(self.paper_dir, "reports",
+                            "r%d-综合审阅意见.md" % round_no)
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    # ── 产物内容 ──
+
+    def test_report_artifact_content(self):
+        self.prepare()
+        code, js, err = self.do_report()
+        self.assertEqual(code, 0, err)
+        text = self.read_report()
+        self.assertIn("# r1 综合审阅意见（交付后专家对账 · 同轮追加）", text)
+        self.assertIn("## 三态对账表", text)
+        self.assertIn("新增（来源=专家）", text)      # E-5 confirmed
+        self.assertIn("排除（专家误判）", text)        # E-3 rejected
+        self.assertIn("吻合", text)                    # E-1/E-2/E-4
+        self.assertIn("冲突（未决分歧）", text)        # E-6
+        self.assertIn("未核实遗漏（不计入）", text)    # E-7/E-8
+        # 合并后分布：面板 P0 2 + 专家新增 1 = 3；总计 4 + 1 = 5
+        self.assertIn("| P0 | 2 | 1 | 3 |", text)
+        self.assertIn("| P1 | 2 | 0 | 2 |", text)
+        self.assertIn("| 总计 | 4 | 1 | 5 |", text)
+        self.assertIn("计数规则", text)
+
+    def test_pending_disputes_section(self):
+        self.prepare()
+        self.do_report()
+        text = self.read_report()
+        dispute = text.split("## 未决分歧（交用户裁决）")[1].split("## 合并后")[0]
+        self.assertIn("E-6", dispute)   # 冲突 → 未决
+        self.assertIn("E-7", dispute)   # 未核实遗漏 → 未决
+        self.assertIn("E-8", dispute)
+        self.assertNotIn("E-5", dispute)   # confirmed 不属未决
+        self.assertNotIn("E-3", dispute)   # rejected 不属未决
+
+    def test_report_stdout_json(self):
+        self.prepare()
+        code, js, err = self.do_report()
+        self.assertEqual(code, 0, err)
+        self.assertTrue(js["success"])
+        self.assertEqual(js["round"], 1)
+        self.assertTrue(js["report"].endswith("reports/r1-综合审阅意见.md"))
+        self.assertEqual(js["distribution"]["panel"]["P0"], 2)
+        self.assertEqual(js["distribution"]["expert_added"], {"P0": 1})
+        self.assertEqual(js["distribution"]["combined"]["P0"], 3)
+        self.assertEqual(js["distribution"]["combined"]["total"], 5)
+        self.assertEqual(js["counted_from_expert"], 1)
+        self.assertTrue(js["chain_updated"])
+        self.assertTrue(js["index_updated"])
+
+    # ── chain.md：追加对账行、原决议不变、幂等 ──
+
+    def test_chain_appended_and_decision_intact(self):
+        self.prepare()
+        code, js, err = self.do_report()
+        self.assertEqual(code, 0, err)
+        with open(self.chain, encoding="utf-8") as f:
+            chain = f.read()
+        self.assertIn("- 专家对账（", chain)
+        self.assertIn("原决议不变", chain)
+        # 原决议与 r2 节不受影响
+        self.assertIn("- 决议：Major Revision（映射评分 6）", chain)
+        self.assertIn("- 决议：Accept（映射评分 9）", chain)
+        # 对账行落在 r1 节内（## r1 与 ## r2 之间）
+        r1_sec = chain.split("## r1")[1].split("## r2")[0]
+        self.assertIn("- 专家对账（", r1_sec)
+
+    def test_chain_rerun_idempotent(self):
+        self.prepare()
+        self.do_report()
+        self.do_report()
+        with open(self.chain, encoding="utf-8") as f:
+            chain = f.read()
+        self.assertEqual(chain.count("- 专家对账（"), 1)
+
+    # ── INDEX.md：路径同步且不重复追加 ──
+
+    def test_index_synced_once(self):
+        self.prepare()
+        self.do_report()
+        self.do_report()
+        with open(self.index, encoding="utf-8") as f:
+            index = f.read()
+        row = [l for l in index.splitlines() if "paper-yu" in l][0]
+        self.assertIn("reports/r1-审阅报告.md", row)          # 原路径保留
+        self.assertIn("reports/r1-综合审阅意见.md", row)      # 新路径已加
+        self.assertEqual(row.count("综合审阅意见"), 1)         # 幂等
+
+    # ── 失败路径 ──
+
+    def test_report_before_match_exit1(self):
+        self.do_init()
+        self.write_findings()
+        code, js, err = self.do_report()
+        self.assertEqual(code, 1)
+        self.assertIn("match", err)
+
+    def test_report_missing_merged_exit1(self):
+        self.prepare()
+        os.remove(os.path.join(self.run_dir, "merged_findings.md"))
+        code, js, err = self.do_report()
+        self.assertEqual(code, 1)
+        self.assertIn("merged_findings.md", err)
+
+    def test_report_merged_without_stats_line_exit1(self):
+        self.prepare()
+        self.write_findings("# 合并审查发现\n\n（统计行缺失）\n")
+        code, js, err = self.do_report()
+        self.assertEqual(code, 1)
+        self.assertIn("统计行", err)
+
+    def test_report_missing_chain_exit1(self):
+        self.prepare()
+        os.remove(self.chain)
+        code, js, err = self.do_report()
+        self.assertEqual(code, 1)
+        self.assertIn("chain.md", err)
+
+    def test_report_round_section_missing_exit1(self):
+        self.prepare()
+        with open(self.chain, "w", encoding="utf-8", newline="\n") as f:
+            f.write(CHAIN_R1_R2.replace("## r1（", "## r9（"))
+        code, js, err = self.do_report()
+        self.assertEqual(code, 1)
+        self.assertIn("r1", err)
+
+    def test_report_paper_dir_missing_exit2(self):
+        self.prepare()
+        code, js, err = self.do_report(
+            paper_dir=os.path.join(self.dir, "no-such-paper"))
+        self.assertEqual(code, 2)
+
+    # ── 真实布局：run_dir=.review/r1，chain 在 .review/ 根（上级目录回退） ──
+
+    def test_nested_run_dir_chain_fallback(self):
+        nested = os.path.join(self.dir, "paper2", ".review", "r1")
+        os.makedirs(nested, exist_ok=True)
+        chain = os.path.join(self.dir, "paper2", ".review", "chain.md")
+        with open(chain, "w", encoding="utf-8", newline="\n") as f:
+            f.write(CHAIN_R1_R2)
+        paper2 = os.path.join(self.dir, "paper2")
+        os.makedirs(os.path.join(paper2, "reports"), exist_ok=True)
+        self.run_dir = nested
+        self.prepare()
+        code, js, err = run(["--run-dir", nested, "report",
+                             "--paper-dir", paper2, "--round", "1",
+                             "--index", self.index])
+        self.assertEqual(code, 0, err)
+        with open(chain, encoding="utf-8") as f:
+            self.assertIn("- 专家对账（", f.read())
+        self.assertTrue(os.path.isfile(os.path.join(
+            paper2, "reports", "r1-综合审阅意见.md")))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

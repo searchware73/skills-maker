@@ -2,6 +2,12 @@
 # -*- coding: utf-8 -*-
 """extract_pdf.py — PDF 下载与文本提取脚本
 
+> ⚠ **节选提取，勿用于全文审阅**（v2.1 条目10 注记）：本脚本面向文献调研卡片场景，
+> 只提取前 8 页 + 后 3 页、每页 ≤3000 字符，长文档（如 186 页学位论文）会被截断。
+> paper-review 全文稿件审阅请用其技能内专用脚本
+> `skills/paper-review/scripts/extract_pdf.py`（full-manuscript：全页无字符上限、
+> 标题重建、页眉页脚过滤、图像导出、refs.txt、源侧计数回填）。
+
 功能：
   1. 从 URL 下载 PDF（或使用本地已有 PDF）
   2. 命名为 NNN_src_XXX.pdf，文本提取为 NNN_extract_XXX.txt，写入 output-dir

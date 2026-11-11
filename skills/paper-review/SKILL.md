@@ -55,7 +55,7 @@ v2.0 架构（对比 v1.x）：原「多智能体研讨+同行评审」两阶段
 | `--response FILE` | 修订版随附作者回复信（`<paper>/response/response-vN.md`，复审 R&R 追溯用） | 无 |
 | `--panel` | 复审面板范围：default=裁剪席位 / full=七席全开 | default |
 | `--new-run` | 对同一版本强制开启新轮次 r<N+1>（全量重审） | 复用当前轮次 |
-| `--expert-comments FILE` | 外部专家意见（`.md` 或 `.docx`；docx 由 expert_reconcile.py 原生解析，零第三方依赖），阶段1后启动对账 | 无 |
+| `--expert-comments FILE` | 外部专家意见（`.md` 或 `.docx`；docx 由 expert_reconcile.py 原生解析，零第三方依赖），阶段1后启动对账；报告**交付后**才收到的意见不用本参数，走 Step 6 之后的「交付后追加对账」 | 无 |
 
 **路径占位符约定**：`{SKILL_DIR}` = 本 SKILL.md 所在目录；`{file_path}` `{paper_dir}`
 `{review_dir}` `{run_dir}` `{section_range}` `{rounds_max}` 等取自 Step 0 的 JSON 输出
@@ -93,10 +93,13 @@ config/chain/RESUME；`run_dir`=`<paper>/.review/r<N>/`，本轮全部产物）�
     ├── vN/                        ← v2+ 作者回包原样存放（替代 sources/vN；开审后不可变）
     ├── draft/                     ← 工作稿（转换可重建产物，不是源，不得作唯一存档）
     │   ├── draft.md / draft-vN.md ← 当前工作副本 / 版本快照
-    │   └── figures/               ← 稿件图片（统一收敛；兼容 media/ 与 figures/ 双形态）
+    │   ├── figures/               ← 稿件图片（统一收敛；兼容 media/ 与 figures/ 双形态）
+    │   └── refs.txt / pdf_source_counts.json ← PDF 稿 Step 0.0 产物（extract_pdf.py：
+    │                                 参考文献 [N] 切分供 bib_lint / 源侧计数供 conversion_audit）
     ├── response/                  ← 作者回复信 response-vN.md；外部专家意见 expert-*.md
     ├── reports/                   ← 交付报告副本 rN-审阅报告.md / rN-复审报告.md
-    │                                 （Step 6 生成，复制而非软链接；过程记录仍在 r<N>/）
+    │                                 （Step 6 生成，复制而非软链接；过程记录仍在 r<N>/）；
+    │                                 交付后追加对账产物 rN-综合审阅意见.md（expert_reconcile.py report）
     └── .review/                   ← 过程状态（保持隐藏，不与阅读材料混排）
         ├── config.json            ← 跨轮状态唯一权威源（doctype/版本映射/轮次/
         │                             豁免清单/撤回记录/用户裁决；layout="flat-v2.1"）
@@ -143,9 +146,13 @@ v1.x 旧产物（扁平 agent_reports/、peer_reports.md 等）与 v2.0 路径�
   并改写 draft.md 内图片相对路径（`media/` → `figures/`）
 - **.tex / 源目录**：执行：`Bash("pandoc <main.tex> -t gfm -o {paper_dir}/draft/draft.md")`
   （多文件工程先确认主文件）；源按 v1 二选一规则原样保留（单文件留根 / 工程整体入 v1/）
-- **.pdf**：用 PyMuPDF 逐页提取全文写入 `{paper_dir}/draft/draft.md`，每页植入
-  `%% [PDF p.N]` 页标记（anchor_map pdf 源坐标唯一切分依据，见
-  references/format-notes.md 第4条）；图片按尺寸过滤导出到 `{paper_dir}/draft/figures/`
+- **.pdf**：执行：`Bash("python {SKILL_DIR}/scripts/extract_pdf.py --input <src.pdf> --draft {paper_dir}/draft/draft.md")`
+  （full-manuscript 专用，v2.1 条目10：全页无字符上限、逐页植入 `%% [PDF p.N]`
+  页标记（anchor_map pdf 源坐标唯一切分依据，见 references/format-notes.md 第4条）、
+  无书签按字号重建标题并合并被拆标题、过滤页眉页脚与目录点引线、图像按尺寸过滤
+  导出 `{paper_dir}/draft/figures/`、参考文献按 [N] 切分 `{paper_dir}/draft/refs.txt`、
+  源侧计数写 `{paper_dir}/draft/pdf_source_counts.json` 供 0.4 回填）；
+  密码保护/损坏 PDF exit 1 → 走 0.3 回退链
 - **转换留痕**：实际转换命令与参数暂记，0.4 生成 conversion_audit.md 后在其末尾
   追加「## 转换链路」节写入（可复现性铁律）
 - **验证**：draft.md 存在且非空；按 references/format-notes.md 抽查转换质量
@@ -177,6 +184,9 @@ PyMuPDF 抽文本 → find_tables 抽表 → 渲染页为 PNG 后 Read 图像。
 
 0.4 转换审计前置（§十⑥，有 --source 或明确转换产物时必做）：
 执行：`Bash("python {SKILL_DIR}/scripts/conversion_audit.py --source <源路径> --draft {file_path} --output {run_dir}conversion_audit.md")`
+- 源为 PDF 且 0.0 产出过 `draft/pdf_source_counts.json` 时**必须**追加
+  `--source-counts {paper_dir}/draft/pdf_source_counts.json`（v2.1 条目10：
+  回填源侧计数，tables/figures/equations 不再为 null）
 - **验证**：success==true；`missing` 中丢失清单将注入 1a 配置卡共同豁免与各席 prompt
 
 0.5 三轨定位（有 --source 时，见 references/anchor-locator.md）：
@@ -185,6 +195,7 @@ PyMuPDF 抽文本 → find_tables 抽表 → 渲染页为 PNG 后 Read 图像。
 
 0.6 引文 lint（§十⑧，稿件含参考文献节或 .bib 时）：
 执行：`Bash("python {SKILL_DIR}/scripts/bib_lint.py --input <参考文献节提取文件|.bib> --run-dir {run_dir}")`
+- PDF 稿直接用 0.0 产出的 `{paper_dir}/draft/refs.txt`（已按 [N] 切分，逐条一行）
 - 产物 bib_lint.md 供 S3 复核（S3 不再手工查格式）
 
 0.7 复审预处理（--re-review 时，见 references/re-review-protocol.md）：
@@ -519,6 +530,29 @@ await agent([
 6.7 RESUME 收尾：`resume.py --run-dir {review_dir} set --stage step6-report --status done`
 + `check` 通过。
 
+### 交付后追加对账（同轮追加，v2.1 条目22 · 门禁 G2' 裁决）
+
+r{round} 报告**交付后**才收到外部专家意见时（Step 0 未声明 `--expert-comments`），
+对已交付轮次补跑对账，**不递增轮次、不改原决议**：
+
+1. 执行：`Bash("python {SKILL_DIR}/scripts/expert_reconcile.py --run-dir {run_dir} init --comments <专家意见文件.md|.docx>")`
+2. 执行：`Bash("python {SKILL_DIR}/scripts/expert_reconcile.py --run-dir {run_dir} match")`
+   （对账基准 = 该轮 `{run_dir}merged_findings.md`）
+3. 隔离区逐条核实（**必须读原文**，不得凭专家表述采信——he-paper「多域客户端」教训）：
+   执行：`Bash("python {SKILL_DIR}/scripts/expert_reconcile.py --run-dir {run_dir} verify --id E-<k> --result confirmed --severity <P0|P1|P2> --evidence <原文证据>")`；
+   专家误判则 `--result rejected --evidence <依据>`（永不计入）
+4. 冲突项与未核实遗漏 = **未决分歧** →
+   执行：`AskUserQuestion(questions=[{"question": "专家对账存在未决分歧（冲突/未核实遗漏）：<清单>。请逐条裁决", "header": "未决分歧", "options": [{"label": "逐条给出裁决意见"}, {"label": "全部维持面板结论"}, {"label": "暂缓，保留在综合意见中"}]}])`
+5. 执行：`Bash("python {SKILL_DIR}/scripts/expert_reconcile.py --run-dir {run_dir} report --paper-dir {paper_dir} --round {round}")`
+   - 产物：`{paper_dir}/reports/r{round}-综合审阅意见.md`（三态对账表 +
+     合并后严重度分布 + 新增项标来源=专家）
+   - chain.md 该轮节自动追加「专家对账」行（**原决议不变**，重复运行幂等）；
+     INDEX.md 报告路径列自动同步（失败仅告警，手工补行）
+   - 计数规则：吻合项不重复计数；专家新增（confirmed）按面板严重度规则定级
+     计入合并分布；冲突项入未决分歧不计入
+- **验证**：success==true 且 `distribution.combined` 与综合意见文件分布表一致；
+  向用户报告三态计数与合并后分布（本节不重跑 validate_report.py——原报告未动）
+
 ---
 
 ## 参考文件（references/，可替换模板）
@@ -548,13 +582,14 @@ await agent([
 |------|------|---------|
 | setup_env.py | 校验/章节定位/版本轮次路由/config.json（layout=flat-v2.1）/doctype 绑定/v1 二选一检测/覆盖护栏/成本预估/非 md 输入分派指引/根 INDEX.md 创建 | Step 0 |
 | resume.py | RESUME.md 续跑快照 init/set/next/show/check | 各阶段边界 |
-| conversion_audit.py | 源侧 vs draft 结构计数，转换丢失清单 | Step 0 |
+| extract_pdf.py | PDF 全文提取（full-manuscript 专用，v2.1 条目10）：全页无字符上限、`%% [PDF p.N]` 页标记、无书签按字号重建标题并合并被拆标题、过滤页眉页脚/目录点引线、图像按尺寸过滤导出 figures/、参考文献按 [N] 切分 refs.txt、pdf_source_counts.json 源侧计数 | Step 0.0 |
+| conversion_audit.py | 源侧 vs draft 结构计数，转换丢失清单；`--source-counts` 回填 PDF 源侧计数（extract_pdf.py 产出） | Step 0 |
 | anchor_map.py | 三轨定位表 init/fill（fill 以 id 为键、requests==entries 强制校验、二进制 PDF 走 PyMuPDF/页标记并留痕 source_extract） | Step 0 / 阶段3 |
 | build_anchor_requests.py | 从 merged_findings.md 自动构建 anchor_requests.json：引文抽取（「」/“”最长片段）、位置解析（L\d+/行N/§X.Y/表N）、weak/ambiguous/not_in_draft/structural_only 标注、needs_manual_quote 待补清单（不静默丢弃） | 阶段3 |
 | bib_lint.py | GB/T 7714 引文格式确定性检查 | Step 0 |
 | diff_scope.py | v(N-1)→vN 变更区域定位 | Step 0（复审） |
 | numeric_checks/ | S7 数值检查库（weighted_identity/table_sums/abstract_numbers/percent_basis） | 阶段1（S7） |
-| expert_reconcile.py | 专家意见对账 init/match/verify/show（隔离区强制核实；--comments 支持 md/docx，docx 原生解析） | 阶段1后/阶段3 |
+| expert_reconcile.py | 专家意见对账 init/match/verify/show/report（隔离区强制核实；--comments 支持 md/docx，docx 原生解析；report=交付后同轮追加对账，产出 rN-综合审阅意见.md 并同步 chain/INDEX） | 阶段1后/阶段3/交付后 |
 | merge_findings.py | v2 双权威清单合并（R-#/D-#/S-#，撤回不复活）；--review-dir 走 v1 兼容模式 | 阶段3 |
 | track_revisions.py | 修改日志逐条 log / summary | 阶段4/5 |
 | convergence_check.py | 收敛/停滞判定 | 阶段5 |

@@ -26,6 +26,8 @@
   python expert_reconcile.py --run-dir DIR match [--findings FILE]
   python expert_reconcile.py --run-dir DIR verify --id E-3 \\
       --result confirmed|rejected --evidence TEXT [--severity P0|P1|P2]
+  python expert_reconcile.py --run-dir DIR report --paper-dir DIR --round N \\
+      [--merged FILE] [--output FILE] [--index FILE]
   python expert_reconcile.py --run-dir DIR show
 
   init    解析专家意见（.md 或 .docx，docx 用 zipfile+ElementTree 原生解析
@@ -36,6 +38,12 @@
           重写条目 state 并生成/覆盖 {run_dir}/expert_reconcile.md
   verify  核实隔离区条目：confirmed（须 --severity 与 --evidence）计入，
           rejected（专家误判，须 --evidence）永不计入；核实记录追加一行
+  report  交付后同轮追加对账（v2.1 条目22，门禁 G2' 裁决：同轮追加，不递增轮次）：
+          产出 {paper_dir}/reports/r{N}-综合审阅意见.md（三态对账表 + 未决分歧 +
+          合并后严重度分布，新增项标来源=专家），chain.md 该轮节追加「专家对账」行
+          （原决议不变，重复运行幂等替换），INDEX.md 报告路径同步（失败仅告警）。
+          计数规则：吻合不重复计；专家新增按 verify 严重度计入分布；
+          冲突与未核实遗漏入未决分歧不计入。存在 pending 条目 → exit 1 先 match
   show    输出对账状态 JSON
 
 输出文件：
@@ -49,18 +57,24 @@
     三节（## 吻合 / ## 疑似遗漏（隔离区，未核实不入报告） / ## 冲突）
     各一张表 | ID | 专家意见 | 对账结果 |，加「## 核实记录」表
     | ID | 结果 | 严重度 | 证据 |
+  {paper_dir}/reports/r{N}-综合审阅意见.md（report 子命令，交付后追加对账产物）
+    三态对账表 + 未决分歧 + 合并后严重度分布；chain.md/INDEX.md 同步更新
 
 stdout（JSON）：
   match/show → {"success":true,"total":N,"matched":N,"omission_candidates":N,
                 "unverified_omissions":N,"conflicts":N,"confirmed":N,
                 "rejected":N,"counted_from_expert":N,"items":[...]}
   match 的 stdout 与 show 同构，外加 {"reconcile_file": "..."}
+  report → 在 show 结构外加 {"report":"...","round":N,
+            "distribution":{"panel":{...},"expert_added":{...},"combined":{...}},
+            "chain":"...","chain_updated":true,"index":"...","index_updated":bool}
   counted_from_expert 只含 confirmed；omission_candidates 计的是 state 仍为
   omission_candidate（未核实）的条数。
 
 退出码：0=成功；1=文件读写失败；2=参数错误。
 """
 import argparse
+import datetime
 import io
 import json
 import os
@@ -427,6 +441,239 @@ def do_verify(args):
     return result, 0
 
 
+# ────────────────────────── report：交付后同轮追加对账（v2.1 条目22） ──────────────────────────
+
+# merged_findings.md 统计行（与 merge_findings.py 输出格式一致，空白压缩后匹配）
+MERGED_STATS_RE = re.compile(
+    r"P0[:：](\d+)项\|P1[:：](\d+)项\|P2[:：](\d+)项\|总计[:：](\d+)项")
+
+REPORT_STATE_LABEL = {
+    "matched": "吻合",
+    "confirmed": "新增（来源=专家）",
+    "conflict": "冲突（未决分歧）",
+    "omission_candidate": "未核实遗漏（不计入）",
+    "rejected": "排除（专家误判）",
+    "pending": "未对账",
+}
+REPORT_STATE_ORDER = ("matched", "confirmed", "conflict",
+                      "omission_candidate", "rejected")
+
+
+def find_chain_file(run_dir):
+    """chain.md 在 .review/ 根（跨轮共享）；run_dir 可能是 .review/ 或 .review/rN/"""
+    for cand in (os.path.join(run_dir, "chain.md"),
+                 os.path.join(os.path.dirname(os.path.abspath(run_dir)), "chain.md")):
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
+def parse_merged_stats(path):
+    if not os.path.isfile(path):
+        fail("面板合并发现文件不存在: %s（report 需在阶段3合并完成、报告交付后运行）"
+             % path, code=1)
+    text = read_text_file(path)
+    m = MERGED_STATS_RE.search(re.sub(r"\s+", "", text))
+    if not m:
+        fail("merged_findings.md 未解析到统计行「P0: N项 | P1: N项 | P2: N项 | 总计: N项」: %s"
+             % path, code=1)
+    p0, p1, p2, total = (int(g) for g in m.groups())
+    return {"P0": p0, "P1": p1, "P2": p2, "total": total}
+
+
+def render_report_md(round_no, date, data, base, additions, combined):
+    entries = data["entries"]
+    out = [
+        "# r%d 综合审阅意见（交付后专家对账 · 同轮追加）" % round_no,
+        "",
+        "> 原 r%d 审阅报告与其决议**不变**；本文件是报告交付后收到的外部专家意见" % round_no,
+        "> 与面板合并发现（merged_findings.md）逐条对账后的综合视图",
+        "> （v2.1 条目22，门禁 G2' 用户裁决：同轮追加模式）。",
+        "> 生成：expert_reconcile.py report · %s" % date,
+        "",
+        "## 三态对账表",
+        "",
+        "| ID | 专家意见 | 状态 | 严重度 | 对应面板发现 / 核实证据 |",
+        "|----|----------|------|--------|--------------------------|",
+    ]
+    ordered = []
+    for state in REPORT_STATE_ORDER:
+        ordered += sorted((e for e in entries if e.get("state") == state),
+                          key=lambda e: e["id"])
+    for e in ordered:
+        state = e.get("state")
+        label = REPORT_STATE_LABEL.get(state, state)
+        sev = e.get("severity") or "—"
+        if state == "matched":
+            note = "→ %s" % (e.get("matched_finding") or "")
+        elif state == "confirmed":
+            note = "证据：%s" % (e.get("evidence") or "")
+        elif state == "conflict":
+            note = "面板对应发现已标注撤回/不成立/误报 → %s" % (e.get("matched_finding") or "")
+        elif state == "omission_candidate":
+            note = "隔离区，待用户裁决（未核实不计入）"
+        else:
+            note = "专家误判：%s" % (e.get("evidence") or "")
+        out.append("| %s | %s | %s | %s | %s |" % (
+            e["id"], md_escape(e["text"]), label, sev, md_escape(note)))
+    out += ["", "## 未决分歧（交用户裁决）", ""]
+    pending_rows = [e for e in ordered
+                    if e.get("state") in ("conflict", "omission_candidate")]
+    if pending_rows:
+        out += ["| ID | 类型 | 说明 |", "|----|------|------|"]
+        for e in pending_rows:
+            kind = ("冲突：面板认定不成立，专家提出异议"
+                    if e.get("state") == "conflict" else "疑似遗漏：未经原文核实")
+            out.append("| %s | %s | %s |" % (e["id"], kind.split("：")[0],
+                                              md_escape(e["text"])))
+    else:
+        out.append("（无）")
+    out += [
+        "",
+        "## 合并后严重度分布",
+        "",
+        "| 严重度 | 面板 | 专家新增（来源=专家） | 合并后 |",
+        "|--------|------|------------------------|--------|",
+    ]
+    for k in ("P0", "P1", "P2"):
+        out.append("| %s | %d | %d | %d |" % (k, base[k], additions.get(k, 0),
+                                              combined[k]))
+    out.append("| 总计 | %d | %d | %d |" % (
+        base["total"], sum(additions.values()), combined["total"]))
+    out += [
+        "",
+        "计数规则：吻合项不重复计数；专家新增项（verify confirmed）按面板严重度规则",
+        "定级并计入分布；冲突项与未核实遗漏入未决分歧，不计入分布；",
+        "排除项（专家误判）永不计入。",
+        "",
+    ]
+    return "\n".join(out)
+
+
+def update_chain(chain_path, round_no, line):
+    """在 chain.md 的 r{N} 节末追加「专家对账」行（不改原决议）；同轮重复运行则替换旧行"""
+    text = read_text_file(chain_path)
+    sec_re = re.compile(r"^##\s*r%d(?!\d)" % round_no, re.MULTILINE)
+    m = sec_re.search(text)
+    if not m:
+        fail("chain.md 无 r%d 节，无法追加专家对账行: %s" % (round_no, chain_path),
+             code=1)
+    nxt = re.compile(r"^##\s", re.MULTILINE).search(text, m.end())
+    end = nxt.start() if nxt else len(text)
+    section = text[m.end():end]
+    # 幂等：剔除本节既有的专家对账行
+    kept = [ln for ln in section.splitlines() if not ln.startswith("- 专家对账（")]
+    while kept and not kept[-1].strip():
+        kept.pop()
+    kept.append(line)
+    new_section = "\n".join(kept) + "\n\n"
+    new_text = text[:m.end()] + new_section + text[end:]
+    try:
+        with open(chain_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(new_text)
+    except OSError as e:
+        fail("chain.md 写入失败: %s" % e, code=1)
+
+
+def update_index(index_path, paper_name, rel_report):
+    """INDEX.md 中该稿件行的报告路径列追加综合意见路径；失败仅告警（非致命）"""
+    if not index_path or not os.path.isfile(index_path):
+        print("警告：INDEX.md 不存在，跳过报告路径同步: %s" % index_path,
+              file=sys.stderr)
+        return False
+    lines = read_text_file(index_path).splitlines()
+    changed = False
+    for i, ln in enumerate(lines):
+        if ln.startswith("|") and paper_name and paper_name in ln:
+            cells = ln.split("|")
+            if len(cells) >= 3 and rel_report not in cells[-2]:
+                cells[-2] = cells[-2].rstrip() + " + " + rel_report + " "
+                lines[i] = "|".join(cells)
+                changed = True
+            break
+    if not changed:
+        print("警告：INDEX.md 未找到稿件行或路径已在，未更新: %s" % paper_name,
+              file=sys.stderr)
+        return False
+    try:
+        with open(index_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError as e:
+        print("警告：INDEX.md 写入失败（%s），未同步" % e, file=sys.stderr)
+        return False
+    return True
+
+
+def do_report(args):
+    data = load_items(args.run_dir)
+    entries = data["entries"]
+    pending = [e["id"] for e in entries if e.get("state") == "pending"]
+    if pending:
+        fail("存在 %d 条未对账条目（%s），请先执行 match"
+             % (len(pending), ",".join(pending)), code=1)
+    for e in entries:
+        if e.get("state") == "confirmed" and e.get("severity") not in SEVERITIES:
+            fail("条目 %s 状态 confirmed 但缺严重度，数据不一致" % e["id"], code=1)
+
+    merged = args.merged or os.path.join(args.run_dir, "merged_findings.md")
+    base = parse_merged_stats(merged)
+    additions = Counter(e["severity"] for e in entries
+                        if e.get("state") == "confirmed")
+    combined = {k: base[k] + additions.get(k, 0) for k in ("P0", "P1", "P2")}
+    combined["total"] = base["total"] + sum(additions.values())
+
+    paper_dir = args.paper_dir
+    if not os.path.isdir(paper_dir):
+        fail("论文目录不存在: %s" % paper_dir)
+    rel_report = "reports/r%d-综合审阅意见.md" % args.round
+    out_path = args.output or os.path.join(paper_dir, "reports",
+                                           "r%d-综合审阅意见.md" % args.round)
+    date = datetime.date.today().isoformat()
+    report_md = render_report_md(args.round, date, data, base, additions, combined)
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        with open(out_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(report_md)
+    except OSError as e:
+        fail("综合审阅意见写入失败: %s" % e, code=1)
+
+    # chain.md 追加「专家对账」行（原决议不动）
+    s = build_stats(data)
+    add_by_sev = " / ".join("%s %d" % (k, additions.get(k, 0)) for k in ("P0", "P1", "P2"))
+    chain_line = ("- 专家对账（%s，交付后追加）：条目 %d → 吻合 %d / 新增 %d"
+                  "（来源=专家：%s）/ 冲突 %d / 未核实遗漏 %d / 排除 %d；"
+                  "合并后 P0 %d / P1 %d / P2 %d（总计 %d）；原决议不变"
+                  % (date, s["total"], s["matched"], s["confirmed"], add_by_sev,
+                     s["conflicts"], s["omission_candidates"], s["rejected"],
+                     combined["P0"], combined["P1"], combined["P2"],
+                     combined["total"]))
+    chain_path = find_chain_file(args.run_dir)
+    if chain_path is None:
+        fail("未找到 chain.md（在 %s 或其上级），无法追加专家对账行"
+             % args.run_dir, code=1)
+    update_chain(chain_path, args.round, chain_line)
+
+    # INDEX.md 报告路径同步（失败仅告警）
+    index_path = args.index or os.path.join(
+        os.path.dirname(os.path.abspath(paper_dir)), "INDEX.md")
+    index_updated = update_index(index_path, os.path.basename(
+        os.path.abspath(paper_dir)), rel_report)
+
+    result = build_stats(data)
+    result.update({
+        "report": to_posix(os.path.abspath(out_path)),
+        "round": args.round,
+        "distribution": {"panel": base,
+                         "expert_added": dict(additions),
+                         "combined": combined},
+        "chain": to_posix(chain_path),
+        "chain_updated": True,
+        "index": to_posix(index_path),
+        "index_updated": index_updated,
+    })
+    return result, 0
+
+
 # ────────────────────────── show / 报告生成 ──────────────────────────
 
 def build_stats(data):
@@ -532,6 +779,19 @@ def main():
     p_verify.add_argument("--severity", choices=list(SEVERITIES), default=None,
                           help="严重度（confirmed 必填：P0|P1|P2）")
 
+    p_report = sub.add_parser(
+        "report", help="交付后同轮追加对账：产出 rN-综合审阅意见.md 并同步 chain/INDEX")
+    p_report.add_argument("--paper-dir", metavar="DIR", required=True,
+                          help="论文目录（<project-root>/<paper-name>）")
+    p_report.add_argument("--round", metavar="N", type=int, required=True,
+                          dest="round", help="已交付轮次号（产物 rN-综合审阅意见.md）")
+    p_report.add_argument("--merged", metavar="FILE", default=None,
+                          help="面板合并发现 md（默认 {run_dir}/merged_findings.md）")
+    p_report.add_argument("--output", metavar="FILE", default=None,
+                          help="综合意见输出路径（默认 {paper_dir}/reports/rN-综合审阅意见.md）")
+    p_report.add_argument("--index", metavar="FILE", default=None,
+                          help="工程根 INDEX.md（默认 {paper_dir}/../INDEX.md）")
+
     sub.add_parser("show", help="输出对账状态 JSON")
 
     args = parser.parse_args()
@@ -541,6 +801,8 @@ def main():
         result, code = do_match(args)
     elif args.action == "verify":
         result, code = do_verify(args)
+    elif args.action == "report":
+        result, code = do_report(args)
     else:
         result, code = do_show(args)
     print(json.dumps(result, ensure_ascii=False, indent=2))

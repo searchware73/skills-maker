@@ -1,6 +1,6 @@
 # paper-review v2.1 实施账本
 
-- 当前组：G4
+- 当前组：发版
 - 更新时间：2026-11-11
 - 待补 push：git pull/push 网络失败（Connection reset），离线开工，push 待补
 
@@ -11,7 +11,7 @@
 | G1 | 19,12,13,21,23,24 | done | f687cbd | 15 文件 212 用例全绿 | G1 验证命令通过：夹具 dry-run 输出 5 类待确认项（10 条）、26 moves、5 rewrites、零文件改动、无 .migrate-layout 残留 |
 | G2 | 15,14,20,16,17 | done | 410881d | 17 文件 264 用例全绿 | 条目17 二选一取 validate_report.py（校验器而非生成器）；条目20 仅 merged 单源输入 |
 | G3 | 11,18 | done | bbe578a | 18 文件 276 用例全绿 | 阶段1/2 各拆两段 Workflow，中间插 check_artifacts.py 门禁；防劫持条款进全部代理 prompt |
-| G4 | 10,22,1,2,3 | todo | | | |
+| G4 | 10,22,1,2,3 | done | 待补记 | 20 文件 317 用例全绿 + lit-research 1 用例绿 | 门禁 G1'（独立新建）/G2'（同轮追加）/G4（条目1/2/3 全部延后 v2.2）已裁决；条目 9 维持冻结 |
 
 ### G1 明细（2026-11-11）
 
@@ -67,6 +67,46 @@
 - 守卫 meta：EXPECTED_MENTIONED_SCRIPTS +check_artifacts
 - 测试合计：276 = G2 的 264 + check_artifacts 12（18 文件全绿）
 
+### G4 明细（2026-11-11）
+
+- 新增：`skills/paper-review/scripts/extract_pdf.py`（条目10，门禁 G1' 裁决独立新建；
+  full-manuscript：全页无上限、`%% [PDF p.N]` 页标记、无书签按字号重建标题+被拆标题合并
+  （有书签走 get_toc 匹配）、页眉页脚/独立页码/目录点引线过滤、图像按像素尺寸与长宽比
+  过滤导出 figures/+markdown 引用+图/表题统计、参考文献按 [N] 切分 refs.txt（跨行归并、
+  致谢/附录停止）、pdf_source_counts.json 源侧计数；加密/损坏 exit 1 指 Step 0.3 回退链；
+  find_tables 的 PyMuPDF stdout 推广行重定向吞掉）+ test_extract_pdf.py（25，
+  PyMuPDF 合成 3 页夹具：字号 24/16/13/10.5 分级、跨页页眉+页码、点引线、
+  「2.1 实验」+「环境与数据集」被拆标题、200x150/10x10/300x4 三形态图像、线框表格、
+  [1]–[3] 参考文献含跨行条目、加密 PDF、书签模式）
+- 修改：`conversion_audit.py` +`--source-counts`（条目10 回填：JSON 覆盖非 null 键，
+  缺失/非法 exit 1；stdout 增 source_counts_overlay/overlay_applied）→ test +6（21）
+- 修改：`expert_reconcile.py` +`report` 子命令（条目22，门禁 G2' 裁决同轮追加：
+  rN-综合审阅意见.md 三态对账表+未决分歧+合并后分布（新增标来源=专家）、
+  chain.md r{N} 节追加「专家对账」行原决议不变且幂等替换（r1/r10 负向环视）、
+  INDEX.md 报告路径列同步失败仅告警；pending/merged 缺统计行/chain 无该轮节 exit 1；
+  chain.md 定位支持 run_dir 及其上级=.review/ 双布局）→ test +10（36）
+- 修改：`skills/lit-research/scripts/extract_pdf.py` 仅 docstring 加「⚠ 节选提取，
+  勿用于全文审阅」注记（铁律1 例外经技能 Step 4 明文授权；行为零改动，
+  tests/test_lit_research/test_extract_pdf.py 1 用例保持绿）
+- SKILL.md：Step 0.0 .pdf 分派改调 extract_pdf.py（产物清单+回退链）、0.4 增
+  --source-counts 必带条件、0.6 注 refs.txt 直供 bib_lint、目录树补 draft/refs.txt +
+  pdf_source_counts.json + reports/rN-综合审阅意见.md、新增「### 交付后追加对账」节
+  （6.7 后：init/match/verify/AskUserQuestion 未决裁决/report 五步）、用法表
+  --expert-comments 行注交付后路径、脚本清单 +extract_pdf 行并更新 conversion_audit/
+  expert_reconcile 行
+- 文档：format-notes.md 第 4 条实指 scripts/extract_pdf.py + 调用示例 + lit-research
+  辨析；templates/chain.md r1 节增可选「专家对账」行示例；备忘条目 1/2/3（延后注记）、
+  10、22 加「[v2.1 已实施（G4，门禁裁决…)]」注记；CHANGELOG G4 节 + 标题改「G1–G4 已交付」
+- 守卫 meta：EXPECTED_MENTIONED_SCRIPTS +extract_pdf
+- 条目 1/2/3 → **deferred → v2.2**（门禁 G4 用户裁决，已告知）；条目 9 维持冻结
+  （实施顺序注5：17 已落地为 validate_report.py 校验器，模板定稿仍需 3–5 次实审摩擦点，
+  不属 v2.1 范围）
+- 已知问题（存量，非 G4 引入）：`python -m unittest discover` 汇总跑会因各测试文件
+  重复包装 sys.stdout/stderr 在解释器收尾时「lost sys.stderr」崩溃——移除 G4 新文件后
+  同样复现；本仓库惯例为逐文件运行（317 用例逐文件全绿）
+- 测试合计：317 = G3 的 276 + extract_pdf 25 + conversion_audit 6 + expert_reconcile 10
+  （20 文件全绿）+ test_lit_research/test_extract_pdf.py 1 绿
+
 ## 备忘修订记录
 （条目号 / 修订内容 / 原因）
 
@@ -82,6 +122,14 @@
   merged_findings.md 单源输入（merged 即合并后唯一权威清单，备选双源无独立价值）；
   含省略号引文标 weak 并跳过 draft 存在性核查（NFKC 把 … 展开为 ...，示意性片段核查
   必然误报 not_in_draft——实测夹具触发）（G2）
+- 条目 1/2/3 / 条目 3 后加「[v2.1 处置（G4，门禁 G4 用户裁决：全部延后 v2.2）]」注记 /
+  可选项处置须留痕，防止 v2.2 开工时误判为已实施（G4）
+- 条目 10 / 加「[v2.1 已实施（G4，门禁 G1' 用户裁决：paper-review 内独立新建）]」注记块：
+  未走 shared/ 双模式的依据（install.py 不携带 shared 模块，安装副本 import 必失败）、
+  合成夹具替代「于小岚 186 页前 10 页切片」建议的原因（仓库内无真稿）、
+  PyMuPDF find_tables stdout 推广行需重定向（实测发现，否则污染脚本 JSON stdout）（G4）
+- 条目 22 / 加「[v2.1 已实施（G4，门禁 G2' 用户裁决：同轮追加）]」注记块：report 子命令
+  行为、chain 幂等替换与 r1/r10 负向环视、INDEX 失败仅告警、三类 exit 1 前置校验（G4）
 
 ## 回流缺陷（来自 paper-reviewer /v21-adopt）
 （编号 / 现象 / 归属组 / 状态 / 提交号）
@@ -90,3 +138,6 @@
 （门禁号 / 选项 / 用户裁决 / 日期）
 
 - G2 / 条目21 专家意见 docx：「仅文本+先转换」vs「脚本原生支持 docx」/ **用户裁决：脚本原生支持 docx**（实现采用 conversion_audit.py 既有的 zipfile+ElementTree 零依赖模式，不引入 python-docx/pandoc 运行时依赖）/ 2026-11-11
+- G1' / 条目10 PDF 全文提取脚本位置：「shared 双模式 --mode excerpt|full-manuscript」vs「paper-review 内独立新建」/ **用户裁决：paper-review 内独立新建**（依据：install.py 无 shared/ 处理逻辑，共享模块不会随技能安装到 ~/.claude/skills/，安装副本上必然 import 失败；lit-research 侧仅在其 extract_pdf.py docstring 加「节选提取，勿用于全文审阅」注记，行为不变）/ 2026-11-11
+- G2' / 条目22 交付后专家对账：「同轮追加」vs「强制 --new-run」/ **用户裁决：同轮追加**（对已交付轮补跑 expert_reconcile，产出 `<paper>/reports/rN-综合审阅意见.md`，chain.md 追加「专家对账」行不改原决议，INDEX.md 同步；吻合不重复计、专家新增按面板规则定级、冲突入未决分歧）/ 2026-11-11
+- G4 / 条目1/2/3 可选增强（图表审计专趟 / Response Letter 骨架 / severity-precedents.md 判例库）/ **用户裁决：全部延后 v2.2**（账本记 deferred → v2.2，G4 报告明确告知）/ 2026-11-11

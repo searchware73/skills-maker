@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 2026-11-11 — paper-review v2.1.0（进行中 · G1–G3 已交付）
+## 2026-11-11 — paper-review v2.1.0（进行中 · G1–G4 已交付）
 
 > v2.1 按 `docs/handoff-20261108-paper-review-v2.md` §十一 分 G1–G4 四组实施，
 > 本节随各组追加；SKILL.md frontmatter 版本号在 Step 5 发版时升为 2.1.0。
@@ -108,6 +108,53 @@
 - 测试：新增 test_check_artifacts.py（12：恰好齐/缺失 redispatch/空文件/预期外文件/
   前缀匹配/同记号多文件任一非空即齐/目录缺失/四技能模式/CLI）；
   `tests/test_paper_review/` 18 文件 276 用例全绿。
+
+### G4 PDF 全文提取与交付后专家对账（条目 10/22；1/2/3 延后 v2.2）
+
+- **新增 scripts/extract_pdf.py（条目 10，门禁 G1' 用户裁决：paper-review 内独立新建，
+  用户可见）**：full-manuscript 专用 PDF 全文提取——全页无字符上限（186 页学位论文
+  不再截断）、逐页 `%% [PDF p.N]` 页标记（anchor_map pdf 源坐标唯一切分依据）、
+  无书签按字号统计重建标题（章/节/小节 → ##/###/####）并合并被 PDF 换行拆开的标题
+  （有书签走 get_toc 标题匹配）、过滤跨页重复页眉页脚/独立页码行/目录点引线路、
+  图像按像素尺寸与长宽比过滤（剔除表格线/字形碎片/背景条）导出 `draft/figures/` +
+  markdown 引用 + 图/表题统计、参考文献按 `[N]` 切分 `draft/refs.txt`（bib_lint 直接
+  消费，跨行条目自动归并，致谢/附录处停止）、产出 `draft/pdf_source_counts.json`
+  源侧计数。密码保护/损坏 PDF exit 1 指向 SKILL Step 0.3 回退链；PyMuPDF find_tables
+  的 stdout 推广行已重定向吞掉（保 JSON 纯净）。
+- **conversion_audit.py `--source-counts` 回填（条目 10，用户可见）**：pdf 源侧
+  tables/figures/equations 不再为 null——extract_pdf.py 的计数 JSON 经本参数覆盖
+  源格式推断值（仅覆盖非 null 键；文件缺失/JSON 非法 exit 1，不静默）；stdout 增
+  `source_counts_overlay`/`overlay_applied` 留痕。
+- **lit-research 名称撞车消歧（条目 10）**：`skills/lit-research/scripts/extract_pdf.py`
+  docstring 加「⚠ 节选提取，勿用于全文审阅」注记并互指两脚本（行为零改动，
+  tests/test_lit_research/test_extract_pdf.py 保持绿）；format-notes.md 第 4 条
+  悬空引用改为实指 scripts/extract_pdf.py 并附调用示例与辨析。
+- **交付后追加对账（条目 22，门禁 G2' 用户裁决：同轮追加，用户可见）**：
+  expert_reconcile.py 新增 `report` 子命令——rN 报告交付后才收到专家意见时，
+  补跑 init/match/verify 后执行 `report --paper-dir --round N`，产出
+  `<paper>/reports/rN-综合审阅意见.md`（三态对账表 + 未决分歧节 + 合并后严重度
+  分布，新增项标来源=专家）；chain.md 该轮节自动追加「专家对账」行（**原决议不变**，
+  重复运行幂等替换）；INDEX.md 报告路径列同步（失败仅告警）。计数规则：吻合不重复计、
+  专家新增按 verify 严重度计入合并分布、冲突与未核实遗漏入未决分歧交用户裁决；
+  pending 未 match / merged 统计行缺失 / chain 无该轮节均 exit 1 不产半成品。
+  SKILL 新增「交付后追加对账」节（Step 6 之后，含 AskUserQuestion 裁决步）；
+  templates/chain.md 增可选「专家对账」行示例；用法表 --expert-comments 行注明
+  交付后路径。
+- **SKILL/文档同步**：Step 0.0 .pdf 分派改调 extract_pdf.py（产物清单+回退链）、
+  0.4 增 --source-counts 必带条件、0.6 注明 PDF 稿 refs.txt 直供 bib_lint、
+  目录树补 draft/refs.txt、pdf_source_counts.json 与 reports/rN-综合审阅意见.md、
+  脚本清单 +extract_pdf 行并更新 conversion_audit/expert_reconcile 行；
+  守卫 meta EXPECTED_MENTIONED_SCRIPTS +extract_pdf。
+- **条目 1/2/3（门禁 G4 用户裁决：全部延后 v2.2）**：图表审计专趟、Response Letter
+  骨架、severity-precedents.md 判例库不进入 v2.1，账本记 deferred → v2.2；
+  条目 9（报告格式统一化）维持冻结。
+- 测试：新增 test_extract_pdf.py（25：PyMuPDF 合成 3 页学位论文风格夹具——页标记/
+  过滤/标题重建与被拆标题合并/书签模式/图像三形态过滤/refs 切分与边界/源侧计数/
+  加密 PDF/CLI）；test_conversion_audit.py +6（overlay 回填/覆盖 pages/未知键忽略/
+  全 null 告警/缺失与非法 JSON exit 1）；test_expert_reconcile.py +10（report 产物
+  内容/未决分歧节/stdout 分布/chain 追加与决议不变与幂等/INDEX 同步一次/五类失败
+  路径/嵌套 run_dir chain 回退）；`tests/test_paper_review/` 20 文件 317 用例全绿 +
+  `tests/test_lit_research/test_extract_pdf.py` 1 用例绿。
 
 ## 2026-11-09 — paper-review v2.0.1（阶段5 评审复查调用修正）
 

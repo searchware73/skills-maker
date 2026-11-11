@@ -277,6 +277,87 @@ Conclusion text here.
         self.assertIsNone(js["source_counts"]["pages"])
 
 
+class TestSourceCountsOverlay(unittest.TestCase):
+    """--source-counts 源侧计数回填（v2.1 条目10：pdf 的 tables/figures/equations
+    不再为 null——extract_pdf.py 产出 pdf_source_counts.json 供本参数消费）"""
+
+    EXTRACT = "%% [PDF p.1]\ntext\n\n%% [PDF p.2]\nmore\n\n%% [PDF p.3]\nend\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+        self.draft = os.path.join(self.dir, "draft.md")
+        write(self.draft, "# 草稿\n\n正文。\n")
+        self.src = os.path.join(self.dir, "extract.txt")
+        write(self.src, self.EXTRACT)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_counts(self, data, name="pdf_source_counts.json"):
+        path = os.path.join(self.dir, name)
+        write(path, json.dumps(data, ensure_ascii=False))
+        return path
+
+    def test_overlay_fills_pdf_nulls(self):
+        counts = self.write_counts({"format": "pdf", "pages": None, "tables": 6,
+                                    "figures": 4, "equations": 12, "refs": 40})
+        code, js, err = run(["--source", self.src, "--draft", self.draft,
+                             "--source-counts", counts])
+        self.assertEqual(code, 0, err)
+        sc = js["source_counts"]
+        self.assertEqual(sc["tables"], 6)
+        self.assertEqual(sc["figures"], 4)
+        self.assertEqual(sc["equations"], 12)
+        self.assertEqual(sc["pages"], 3)          # overlay 为 null → 保留文本推断值
+        m = js["missing"]                          # draft 侧全 0 → missing=源值
+        self.assertEqual(m["tables"], 6)
+        self.assertEqual(m["figures"], 4)
+        self.assertEqual(m["equations"], 12)
+        self.assertEqual(js["missing_pointers"], [])   # pdf 无指针可列
+        self.assertEqual(sorted(js["overlay_applied"]),
+                         ["equations", "figures", "tables"])
+
+    def test_overlay_overrides_computed_pages(self):
+        counts = self.write_counts({"pages": 186})
+        code, js, err = run(["--source", self.src, "--draft", self.draft,
+                             "--source-counts", counts])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(js["source_counts"]["pages"], 186)
+        self.assertEqual(js["overlay_applied"], ["pages"])
+
+    def test_overlay_ignores_unknown_keys(self):
+        counts = self.write_counts({"refs": 40, "headings": 7, "tables": 2})
+        code, js, err = run(["--source", self.src, "--draft", self.draft,
+                             "--source-counts", counts])
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("refs", js["source_counts"])
+        self.assertEqual(js["source_counts"]["tables"], 2)
+
+    def test_overlay_all_null_keeps_defaults(self):
+        counts = self.write_counts({"tables": None, "figures": None})
+        code, js, err = run(["--source", self.src, "--draft", self.draft,
+                             "--source-counts", counts])
+        self.assertEqual(code, 0, err)
+        self.assertIsNone(js["source_counts"]["tables"])
+        self.assertEqual(js["overlay_applied"], [])
+        self.assertIn("未回填", err)
+
+    def test_overlay_missing_file_exit1(self):
+        code, js, err = run(["--source", self.src, "--draft", self.draft,
+                             "--source-counts", os.path.join(self.dir, "nope.json")])
+        self.assertEqual(code, 1)
+        self.assertIn("--source-counts", err)
+
+    def test_overlay_invalid_json_exit1(self):
+        path = os.path.join(self.dir, "bad.json")
+        write(path, "{not json")
+        code, js, err = run(["--source", self.src, "--draft", self.draft,
+                             "--source-counts", path])
+        self.assertEqual(code, 1)
+        self.assertIn("--source-counts", err)
+
+
 class TestDraftMath(unittest.TestCase):
     """draft 公式块（$$ 跨行 + \\[...\\]）与行内数学近似计数"""
 

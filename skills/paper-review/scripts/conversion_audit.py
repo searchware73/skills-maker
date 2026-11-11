@@ -8,12 +8,17 @@ vs draft.md 计数对照，产出疑似丢失清单（含源侧指针）注入�
 提醒评审人优先核对丢失结构，勿被转换稿误导。
 
 用法：
-  python conversion_audit.py --source PATH --draft FILE [--format tex|docx|pdf] [--output FILE]
+  python conversion_audit.py --source PATH --draft FILE [--format tex|docx|pdf]
+      [--output FILE] [--source-counts FILE]
 
   --source  源文件或目录（tex 目录 / .tex / .docx / pdf提取.txt / .pdf）
   --draft   工作稿 draft.md
   --format  源格式，缺省按扩展名推断：目录→tex；.tex→tex；.docx→docx；.txt/.pdf→pdf
   --output  markdown 审计报告输出路径（缺省不写文件）
+  --source-counts  源侧计数 JSON 覆盖文件（extract_pdf.py 产出的
+            pdf_source_counts.json）：其中非 null 的 tables/figures/equations/pages
+            等键覆盖源格式推断值——pdf 源侧计数回填（v2.1 条目10），
+            文件缺失/JSON 非法 exit 1
 
 源侧计数 source_counts：
   tex  ：正则计数 \\begin{table|table*|figure|figure*|algorithm|algorithmic|
@@ -26,7 +31,8 @@ vs draft.md 计数对照，产出疑似丢失清单（含源侧指针）注入�
          w:tbl→tables；w:drawing+w:pict→figures；m:oMath→equations
   pdf  ：提取文本按页标记（%% [PDF p.N] / --- Page N ---）计 pages；
          真 .pdf 走 PyMuPDF(fitz)，ImportError/打开失败时降级 pages=null
-         并向 stderr 告警；tables/figures/equations 记 null（无法机械计数）
+         并向 stderr 告警；tables/figures/equations 记 null（无法机械计数，
+         可用 --source-counts 从 extract_pdf.py 的 pdf_source_counts.json 回填）
 
 draft 侧计数 draft_counts（markdown）：
   tables         = 连续以 | 开头且含分隔行（---）的表格块数
@@ -369,6 +375,24 @@ def render_report(fmt, source, draft, sc, dc, missing, missing_pointers):
 
 # ────────────────────────── 主流程 ──────────────────────────
 
+def apply_counts_overlay(counts, path):
+    """--source-counts JSON 覆盖：仅以其中非 null 的 COUNT_KEYS 键覆盖 counts。
+    文件缺失/JSON 非法 → exit 1（回填是显式动作，失败不得静默）。"""
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            overlay = json.load(f)
+    except (OSError, ValueError) as e:
+        fail("--source-counts 读取/解析失败: %s" % e, code=1)
+    if not isinstance(overlay, dict):
+        fail("--source-counts 内容须为 JSON 对象: %s" % path, code=1)
+    applied = []
+    for k in COUNT_KEYS:
+        if overlay.get(k) is not None:
+            counts[k] = overlay[k]
+            applied.append(k)
+    return applied
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="conversion_audit.py",
@@ -384,6 +408,11 @@ def main():
                         help="源格式（缺省按扩展名推断：目录→tex，.tex→tex，.docx→docx，.txt/.pdf→pdf）")
     parser.add_argument("--output", metavar="FILE", default=None,
                         help="markdown 审计报告输出路径（缺省不写文件）")
+    parser.add_argument("--source-counts", metavar="FILE", default=None,
+                        help="源侧计数 JSON 覆盖文件（extract_pdf.py 产出的 "
+                             "pdf_source_counts.json）：其中非 null 的 "
+                             "tables/figures/equations/pages 等键覆盖源格式推断值，"
+                             "用于 pdf 源侧计数回填（v2.1 条目10）")
     args = parser.parse_args()
 
     fmt = args.format or infer_format(args.source)
@@ -404,6 +433,13 @@ def main():
         draft_counts = count_draft(args.draft)
     except ValueError as e:
         fail(str(e), code=1)
+
+    overlay_applied = []
+    if args.source_counts:
+        overlay_applied = apply_counts_overlay(source_counts, args.source_counts)
+        if not overlay_applied:
+            print("警告：--source-counts 未提供任何非 null 计数键，源侧计数未回填",
+                  file=sys.stderr)
 
     missing = compute_missing(source_counts, draft_counts)
     missing_pointers = collect_missing_pointers(missing, pointers)
@@ -433,6 +469,9 @@ def main():
         "draft_counts": draft_counts,
         "missing": missing,
         "missing_pointers": missing_pointers,
+        "source_counts_overlay": to_posix(os.path.abspath(args.source_counts))
+        if args.source_counts else None,
+        "overlay_applied": overlay_applied,
         "output": out_path,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))

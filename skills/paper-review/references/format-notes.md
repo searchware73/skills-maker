@@ -21,9 +21,13 @@
 
 ## PDF → 文本提取
 
-4. **页标记是标准动作**：提取时逐页植入 `%% [PDF p.N]` 标记
-   （SKILL Step 0.0 的 PDF 提取脚本化路径自动植入；临时用 PyMuPDF 自行提取时
-   也必须逐页植入）。
+4. **页标记是标准动作，提取一律走脚本**：SKILL Step 0.0 调用
+   `scripts/extract_pdf.py`（如 `python scripts/extract_pdf.py --input <src.pdf> --draft draft/draft.md`，
+   full-manuscript 专用：全页无字符上限、标题重建、页眉页脚/点引线过滤、图像导出、
+   refs.txt、pdf_source_counts.json），自动逐页植入 `%% [PDF p.N]` 标记；
+   临时用 PyMuPDF 自行提取时也必须逐页植入。
+   ⚠ 勿与 `skills/lit-research/scripts/extract_pdf.py` 混淆——那是**节选提取器**
+   （前 8 页 + 后 3 页、每页 ≤3000 字符），用于全文稿件会把长文截断。
    该标记是 anchor_map.py 三轨定位中 pdf 源坐标（页码）的唯一切分依据，
    缺失则 pdf 源定位全部退化为结构坐标。
 

@@ -348,6 +348,8 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
 2. **Response Letter 骨架**：从路线图自动生成 R→A→C 三栏骨架，随最终报告产出（仿真稿决议曾手写 Instructions，应固化）
 3. **严重度判例库** references/severity-precedents.md：跨篇累积边界裁决（he DPA trade-off P2→P1、姓名倒置 P0/P1 之争、
    表8 定性措辞仲裁），新仲裁先查判例
+   > **[v2.1 处置（G4，门禁 G4 用户裁决：全部延后 v2.2）]**：条目 1/2/3 v2.1 不实施，
+   > 账本已记 deferred → v2.2。
 4. **一篇一会话纪律 + 阶段记账**：正式模式单篇单会话；RESUME.md/config 记各阶段墙钟与 token（亦为 10.6 预估的数据源）
 5. **跨篇 INDEX**：Step 6 向 papers/INDEX.md 追加一行状态（稿件名/doctype/当前轮次/决议/日期/报告路径），
    新会话一眼全貌（现状须 ls + 逐篇读 RESUME）；属工作空间级约定，随 v2.0 落地时与 CLAUDE.md 更新一并讨论
@@ -397,6 +399,19 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
      并在 lit-research 那份的 docstring 注明「节选提取，勿用于全文审阅」。
    无论哪种，`tests/test_lit_research/test_extract_pdf.py`（页标记用例）须继续通过，
    并为 full-manuscript 模式新增夹具（建议用于小岚 186 页 PDF 的前 10 页切片）。
+   > **[v2.1 已实施（G4，门禁 G1' 用户裁决：paper-review 内独立新建）]**：新建
+   > `skills/paper-review/scripts/extract_pdf.py`（full-manuscript 专用；未走 shared/ 双模式——
+   > install.py 不携带 shared 模块，安装副本上 import 必然失败）。全部要求落地：
+   > 全页无字符上限 + `%% [PDF p.N]` 页标记、无书签按字号重建标题并合并被拆标题
+   > （有书签走 get_toc 标题匹配）、页眉页脚/独立页码/目录点引线过滤、图像按像素尺寸与
+   > 长宽比过滤导出 figures/ + markdown 引用 + 图/表题统计、参考文献按 [N] 切分 refs.txt
+   > （bib_lint 直接消费）、pdf_source_counts.json 源侧计数 → conversion_audit.py 新增
+   > `--source-counts` 参数回填（tables/figures/equations 不再为 null）。密码保护/损坏 PDF
+   > exit 1 指向 SKILL Step 0.3 回退链。format-notes.md 第 4 条已改为实指本脚本并加
+   > lit-research 节选提取器辨析；lit-research 版 docstring 加「节选提取，勿用于全文审阅」
+   > 注记（行为不变，tests/test_lit_research/test_extract_pdf.py 保持绿）。夹具为 PyMuPDF
+   > 合成多页 PDF（25 用例；仓库内无于小岚真稿，「前 10 页切片」建议以合成夹具替代）。
+   > 注：PyMuPDF ≥1.24 的 find_tables 会向 stdout 打推广行，脚本内已重定向吞掉以保 JSON 纯净。
 11. **Workflow 席位被用户消息劫持导致漏派**（2026-11-10 用户提出，连续两篇实测）：
    现象：全昌寿稿 S4、于小岚稿 S3 在阶段1 七席并行时未产出报告，但 Workflow 统计为
    `agents_done=9, agents_error=0`，无自动重试；1c 主持人只能标注缺口或按六席计算。
@@ -586,6 +601,16 @@ r2 忽略清单转为豁免记录）；删除 q10-1 目录前须用户确认。
      并同步更新 chain.md 该轮记录（追加「专家对账」行，不改原决议）与 INDEX.md 报告路径；
    - 或强制 `--new-run` 开 r<N+1>；二者择一，避免「综合意见」游离于版本谱系之外；
    - 合并计数规则：吻合项不重复计数；专家新增项按面板严重度规则定级；冲突项记入未决分歧交用户裁决。
+   > **[v2.1 已实施（G4，门禁 G2' 用户裁决：同轮追加）]**：expert_reconcile.py 新增
+   > `report` 子命令——对已交付轮补跑 init/match/verify 后执行
+   > `report --paper-dir --round`，产出 `<paper>/reports/rN-综合审阅意见.md`
+   > （三态对账表 + 未决分歧节 + 合并后严重度分布，新增项标来源=专家）；chain.md
+   > 该轮节自动追加「专家对账」行（**原决议不变**，重复运行幂等替换，r1/r10 用
+   > 负向环视区分）；INDEX.md 报告路径列同步（失败仅告警不阻塞）。计数规则落地：
+   > 吻合不重复计、专家新增按 verify --severity 计入分布、冲突与未核实遗漏入
+   > 未决分歧不计入。面板基线分布解析 merged_findings.md 统计行（缺行/缺文件 exit 1，
+   > pending 未 match exit 1）。SKILL 新增「交付后追加对账」节（Step 6 之后，含
+   > 未决分歧 AskUserQuestion 裁决步）；templates/chain.md 增可选「专家对账」行示例。
 23. **Step 0 缺输入类型分派**（与第 10、12 条配套）：
    SKILL 只接受 Markdown 路径，PDF/DOCX/TeX → md 的转换步骤只写在工作空间 CLAUDE.md 里，
    技能本身无入口（两篇实测均由会话临时决定转换方式，故有第 10 条）。v2.1 在 Step 0.1 前增加分派：
