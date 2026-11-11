@@ -1,8 +1,10 @@
 # paper-review v2.1 实施账本
 
-- 当前组：发版
+- 当前组：done（v2.1.0 已发版并安装；待补 push 后无遗留）
 - 更新时间：2026-11-11
-- 待补 push：git pull/push 网络失败（Connection reset），离线开工，push 待补
+- 待补 push：本地 main 领先远端（G1–G4 全部提交 + 发版提交 28e18c8 + tag v2.1.0）；
+  push 三连（首发 + 重试 2 次）均 Connection reset / 443 不可达，恢复网络后
+  `git push --follow-tags origin main` 一次补齐
 
 ## 组进度
 
@@ -12,6 +14,7 @@
 | G2 | 15,14,20,16,17 | done | 410881d | 17 文件 264 用例全绿 | 条目17 二选一取 validate_report.py（校验器而非生成器）；条目20 仅 merged 单源输入 |
 | G3 | 11,18 | done | bbe578a | 18 文件 276 用例全绿 | 阶段1/2 各拆两段 Workflow，中间插 check_artifacts.py 门禁；防劫持条款进全部代理 prompt |
 | G4 | 10,22,1,2,3 | done | 593248b | 20 文件 317 用例全绿 + lit-research 1 用例绿 | 门禁 G1'（独立新建）/G2'（同轮追加）/G4（条目1/2/3 全部延后 v2.2）已裁决；条目 9 维持冻结 |
+| 发版 | Step 5 | done | 28e18c8 + tag v2.1.0 | 20 文件 317 + lit-research 1 = 318 全绿 | 门禁 G3 用户裁决执行三连；push 失败×3 记待补；install 校验：diff -rq 空 / 安装副本 version 2.1.0 / v21-migration-notes.md 已随装 |
 
 ### G1 明细（2026-11-11）
 
@@ -107,6 +110,28 @@
 - 测试合计：317 = G3 的 276 + extract_pdf 25 + conversion_audit 6 + expert_reconcile 10
   （20 文件全绿）+ test_lit_research/test_extract_pdf.py 1 绿
 
+### 发版明细（Step 5，2026-11-11）
+
+- 5.1 版本号：SKILL.md frontmatter `version: 2.1.0`；description 更新为 v2.1 能力口径
+  （交付后同轮追加对账 / PDF 全文提取 / 产物完整性门禁 / 扁平结构；触发短语未动）
+- 5.2 移交说明：新增 `skills/paper-review/references/v21-migration-notes.md`
+  （落地目录树 / 与备忘偏差 10 条逐条含原因 / migrate_layout.py 全参数与 JSON 字段 /
+  9 类 pending 人工判定与推荐处置 / 下游校验命令 7 条 / 新增与变更脚本参数一览）；
+  SKILL.md 参考文件表收录（孤儿守卫要求）。守卫首跑抓到偏差表内写了备忘备选方案的
+  字面路径 `shared/scripts/pdf_extract.py`（不存在于本技能 scripts/，check C 与
+  存在性守卫同时 fail）→ 改写为不含路径的表述后两守卫全绿——守卫测试在发版阶段
+  仍有效拦截，未放宽任何用例（无 G5）
+- CHANGELOG：标题去「进行中」、增「### 发版（Step 5）」节
+- 测试：守卫 10+5 绿；全套逐文件 318 绿（317 + lit-research 1）
+- 5.3 门禁 G3 用户裁决「执行发版三连」→ commit 28e18c8 + tag v2.1.0；
+  push 首发与重试 2 次均失败（Connection reset / 443 不可达）→ 记「待补 push」，
+  按技能规则不阻塞，继续 install
+- install：`python install.py install paper-review` 覆盖安装成功，list 显示已安装
+- 5.4 安装校验：`diff -rq skills/paper-review ~/.claude/skills/paper-review` 无输出；
+  安装副本 SKILL.md `version: 2.1.0`；references/v21-migration-notes.md 已随装（12923 B）
+- 遗留给用户：重启 Claude Code 后在 paper-reviewer 工作空间执行 `/v21-adopt`；
+  网络恢复后 `git push --follow-tags origin main` 补推
+
 ## 备忘修订记录
 （条目号 / 修订内容 / 原因）
 
@@ -141,3 +166,4 @@
 - G1' / 条目10 PDF 全文提取脚本位置：「shared 双模式 --mode excerpt|full-manuscript」vs「paper-review 内独立新建」/ **用户裁决：paper-review 内独立新建**（依据：install.py 无 shared/ 处理逻辑，共享模块不会随技能安装到 ~/.claude/skills/，安装副本上必然 import 失败；lit-research 侧仅在其 extract_pdf.py docstring 加「节选提取，勿用于全文审阅」注记，行为不变）/ 2026-11-11
 - G2' / 条目22 交付后专家对账：「同轮追加」vs「强制 --new-run」/ **用户裁决：同轮追加**（对已交付轮补跑 expert_reconcile，产出 `<paper>/reports/rN-综合审阅意见.md`，chain.md 追加「专家对账」行不改原决议，INDEX.md 同步；吻合不重复计、专家新增按面板规则定级、冲突入未决分歧）/ 2026-11-11
 - G4 / 条目1/2/3 可选增强（图表审计专趟 / Response Letter 骨架 / severity-precedents.md 判例库）/ **用户裁决：全部延后 v2.2**（账本记 deferred → v2.2，G4 报告明确告知）/ 2026-11-11
+- G3 / 发版三连：「执行三连」vs「只 tag+install 不 push」vs「暂不发版」/ **用户裁决：执行发版三连**（测试全绿 318 为前提；push 实际失败×3 → 按规则记待补并继续 install，install 校验通过）/ 2026-11-11
