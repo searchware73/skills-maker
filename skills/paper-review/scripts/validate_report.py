@@ -71,8 +71,9 @@ def read_text(path):
 
 
 def squash(text):
-    """去掉全部空白——模板行允许换行折行，核对口径与空白无关"""
-    return re.sub(r"\s+", "", text or "")
+    """去掉全部空白与 markdown 粗体星号——模板行允许换行折行，报告行允许
+    **粗体**修饰（R-5 回流），核对口径与这些符号无关"""
+    return re.sub(r"[\s*]+", "", text or "")
 
 
 def canon_decision(dec):

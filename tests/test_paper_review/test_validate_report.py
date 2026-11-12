@@ -201,6 +201,30 @@ class TestAligned(Base):
         self.assertTrue(any("anchor" in s for s in js["skipped"]))
 
 
+class TestBoldStatsTolerated(Base):
+    """R-5 回流：合并统计行数字被 **粗体** 包裹不应报「未找到」"""
+
+    def test_bold_stats_line_passes(self):
+        report = REPORT.replace("合并统计：P0 2", "合并统计：**P0 2")
+        report = report.replace("总计 4（内容", "总计 4**（内容")
+        self.assertNotEqual(report, REPORT)
+        self._write_report(report)
+        shutil.copyfile(self.report_path, self.copy_path)
+        js = self.assertPass()
+        self.assertEqual(js["checks"]["merge_stats"]["report"],
+                         js["checks"]["merge_stats"]["merged"])
+
+    def test_bold_everywhere_stats_passes(self):
+        """整行加粗 + 折行变化仍容错（squash 去空白与星号）"""
+        report = REPORT.replace(
+            "- 合并统计：P0 2 / P1 1 / P2 1，总计 4（内容 3 + 语言 1；",
+            "- **合并统计：P0 2 / P1 1 / P2 1，总计 4（内容 3 + 语言 1；**")
+        self.assertNotEqual(report, REPORT)
+        self._write_report(report)
+        shutil.copyfile(self.report_path, self.copy_path)
+        self.assertPass()
+
+
 class TestCountMismatchFails(Base):
     """核心回归：报告计数不一致时 fail（备忘条目17 实测缺陷）"""
 

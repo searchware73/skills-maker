@@ -10,7 +10,8 @@ S3 领域席只做语义核对，不再逐字排查格式。
                     与 "" 定界，嵌套花括号正确配对），提取 author/title/year/
                     journal/booktitle/note/eprint 等
   其他（.md/.txt）→ GB/T 7714 模式：条目 = 以 [N] 开头的行块（直到下一个
-                    [N] 或空行分界；一行多条被换行折断的情形按 [N] 切块）
+                    [N] 或空行分界；一行多条被换行折断的情形按 [N] 切块）；
+                    pandoc 转义的 \[N\]/\[J\] 等自动还原后再解析（R-6 回流）
 
 检查项（每项产出 级别 error|warn + 证据片段）：
   1. empty_conference  error  `[C]//` 后紧跟 `.`、`,`、`[` 或空白到行尾（空会议名/空出版者）
@@ -199,6 +200,9 @@ def parse_bib(text):
 def parse_gbt(text):
     """[N] 开头行块（到下一个 [N] 或空行分界；一行多条按 [N] 切块）
     → [{"label","text"}, ...]"""
+    # R-6 回流：pandoc 在 docx/tex→md 时把 [N]/[J]/[M] 等转义为 \[N\]/\[J\]/\[M\]，
+    # 先整体还原方括号转义再切块（否则解析出 0 条目，易误判「无参考文献」）
+    text = text.replace("\\[", "[").replace("\\]", "]")
     entries = []
     marks = list(GBT_MARK_RE.finditer(text))
     for i, m in enumerate(marks):

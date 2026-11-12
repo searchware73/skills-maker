@@ -226,6 +226,43 @@ class TestCleanRegression(unittest.TestCase):
         self._assert_clean("clean.bib", self.CLEAN_BIB, "bib")
 
 
+class TestPandocEscaped(unittest.TestCase):
+    """R-6 回流：pandoc 把 [N]/[J]/[C] 转义为 \\[N\\]/\\[J\\]/\\[C\\]，
+    修复前整节参考文献被解析为 0 条（易误判「无参考文献」）"""
+
+    ESCAPED = (
+        "\\[1\\] ZHANG W, LI M. Conference paper title\\[C\\]//. "
+        "Beijing: Press, 2019: 12-20.\n"
+        "\\[2\\] 张三, 李四. 中文论文题目\\[J\\]. 中国期刊, 2020, 10(2): 45-50.\n"
+        "\\[3\\] WILSON K. Clean study\\[J\\]. Journal Name, 2021, 12(3): 45-50.\n"
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+        self.run_dir = os.path.join(self.dir, "run")
+        self.src = os.path.join(self.dir, "refs.md")
+        write(self.src, self.ESCAPED)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_escaped_entries_parsed(self):
+        code, js, err = run(["--input", self.src, "--run-dir", self.run_dir])
+        self.assertEqual(code, 0, err)
+        self.assertTrue(js["success"])
+        self.assertEqual(js["mode"], "gbt")
+        self.assertEqual(js["entries"], 3)      # 修复前为 0
+        self.assertNotIn("未解析到任何条目", err)
+
+    def test_escaped_checks_still_fire(self):
+        """还原后 [C]//. 空会议名与 CJK 双语配对检查照常触发"""
+        code, js, err = run(["--input", self.src, "--run-dir", self.run_dir])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(js["by_check"].get("empty_conference"), 1)
+        self.assertEqual(js["by_check"].get("bilingual_pairing"), 1)
+
+
 class TestEmptyAndErrors(unittest.TestCase):
     def test_no_entries_success_with_stderr_warning(self):
         tmp = tempfile.TemporaryDirectory()
