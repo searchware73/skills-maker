@@ -31,7 +31,9 @@ paper-review 内独立新建，不经 shared/，因 install.py 不携带 shared 
   --figures-dir     图像导出目录（默认 {draft 所在目录}/figures）
   --refs-out        参考文献切分产物（默认 {draft 所在目录}/refs.txt；未找到参考文献节则不写）
   --counts-out      源侧计数 JSON（默认 {draft 所在目录}/pdf_source_counts.json）
-  --min-image-size  导出图像最小像素边长（宽高均须 ≥ 该值，默认 60）
+  --min-image-size  导出图像最小像素边长（宽高均须 ≥ 该值，默认 150；
+                    R-3 回流：60 在 186 页学位论文上误导出 531 张表格/碎片图，
+                    图题仅 95 个。细粒度文档可显式调低）
 
 stdout（JSON）：
   {"success": true, "input": "...", "draft": "...", "pages": N, "bookmarks": false,
@@ -425,8 +427,8 @@ def main():
                         help="参考文献切分产物（默认 {draft 目录}/refs.txt）")
     parser.add_argument("--counts-out", metavar="FILE", default=None,
                         help="源侧计数 JSON（默认 {draft 目录}/pdf_source_counts.json）")
-    parser.add_argument("--min-image-size", metavar="N", type=int, default=60,
-                        help="导出图像最小像素边长（宽高均须 ≥ 该值）")
+    parser.add_argument("--min-image-size", metavar="N", type=int, default=150,
+                        help="导出图像最小像素边长（宽高均须 ≥ 该值，默认 150）")
     args = parser.parse_args()
 
     if not os.path.isfile(args.input):

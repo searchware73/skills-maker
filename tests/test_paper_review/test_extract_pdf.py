@@ -346,5 +346,41 @@ class TestCli(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+@unittest.skipUnless(HAS_FITZ, "需要 PyMuPDF 构造夹具")
+class TestDefaultMinImageSize(unittest.TestCase):
+    """R-3 回流：默认 --min-image-size 提到 150
+    （60 曾在 186 页学位论文上把表格/碎片误当图片导出 531 张，图题仅 95）"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+        self.pdf = os.path.join(self.dir, "frag.pdf")
+        doc = fitz.open()
+        p = doc.new_page(width=595, height=842)
+        put(p, 72, 100, "碎片图像阈值夹具", 16)
+        pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 100, 100))
+        p.insert_image(fitz.Rect(72, 200, 172, 300), pixmap=pix)
+        doc.save(self.pdf)
+        doc.close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_default_filters_sub_150(self):
+        draft = os.path.join(self.dir, "a", "draft.md")
+        code, js, err = run(["--input", self.pdf, "--draft", draft])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(js["images_exported"], 0)
+        self.assertEqual(js["images_filtered"], 1)
+
+    def test_explicit_60_still_exports(self):
+        draft = os.path.join(self.dir, "b", "draft.md")
+        code, js, err = run(["--input", self.pdf, "--draft", draft,
+                             "--min-image-size", "60"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(js["images_exported"], 1)
+        self.assertEqual(js["images_filtered"], 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
