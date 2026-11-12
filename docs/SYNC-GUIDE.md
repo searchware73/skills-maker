@@ -2,7 +2,7 @@
 
 > 适用场景：在另一台笔记本（或重装系统后的机器）上同步 skills-maker 工作空间，
 > 并安装/更新 `lit-research` 与 `paper-review` 两个技能。
-> 最后核对：2026-11-12（对应 paper-review v2.1.0 / lit-research v1.0.1，标签 `v2.1.0`）。
+> 最后核对：2026-11-12（对应 paper-review v2.1.1 / lit-research v1.0.1，标签 `v2.1.1`）。
 
 ---
 

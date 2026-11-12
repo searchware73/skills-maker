@@ -162,6 +162,18 @@
 ## 回流缺陷（来自 paper-reviewer /v21-adopt）
 （编号 / 现象 / 归属组 / 状态 / 提交号）
 
+- R-1 / setup_env `--re-review` 对历史版本 draft-v2.md 解析 round=r5 并写入 started_at，
+  覆盖既有轮次元数据；config rounds.r2.version=v2 映射未被使用 / G1 / doing /
+- R-2 / setup_env 警告行（「警告：文件版本 v1 低于 config 记录 v5…」）输出到 stdout，
+  污染 JSON，下游 json.load 失败 / G1 / doing /
+- R-3 / extract_pdf 默认 --min-image-size 60 在 186 页学位论文导出 531 张图
+  （图题仅 95），表格/碎片误当图片 / G4 / doing /
+- R-4 / migrate_layout 不重写 .review 叙述性路径与交付副本内历史命令（脚本口径
+  本就只改 config/chain/RESUME）/ G1 / doing（文档注记）/
+- R-5 / validate_report「合并统计」行解析过严：报告写粗体 `**P0 4 / …**` 即报未找到；
+  模板未给可复制的精确行 / G2 / doing /
+- R-6 / bib_lint 无法解析 pandoc 转义 `\[N\]`：19 条参考文献解析为 0 条 / G2 / doing /
+
 ## 门禁裁决记录
 （门禁号 / 选项 / 用户裁决 / 日期）
 

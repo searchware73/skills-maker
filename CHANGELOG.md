@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## 2026-11-12 — paper-review v2.1.1（回流修复 R-1–R-6）
+
+> 来自 paper-reviewer 工作空间 `/v21-adopt` 实测回流
+> （`.claude/v21-adopt-log.md`「回流缺陷」节），六条全部闭环：
+> R-2 经流分离实证当前版不可复现（警告本就走 stderr、stdout 纯 JSON；
+> 下游所见为 Bash 合并显示），其警告路径随 R-1 修复整体消除；
+> R-4 属 migrate_layout 既有口径，落文档注记。
+
+- **R-1 低版本拒绝初始化（用户可见）**：`setup_env.py` 对文件版本低于 config
+  `current_version` 的输入拒绝初始化（success=false、exit 1，指明该版本对应的
+  历史轮次并给出 `--new-run` / 换用当前版本草稿两条出路），不再把历史版本稿
+  绑到当前轮并改写既有轮次元数据（started_at/re_review）；拒绝时 config 字节级不变。
+- **R-2 stdout 纯净锁定**：「文件版本低于 config」警告路径随 R-1 删除；
+  回归测试锁定该场景 stdout 为纯 JSON。
+- **R-3 图像阈值默认提高（用户可见）**：`extract_pdf.py --min-image-size`
+  默认 60 → 150（60 在 186 页学位论文上把表格/碎片误当图片导出 531 张，
+  图题仅 95 个）；细粒度文档可显式调低。
+- **R-4 迁移改写范围注记**：`v21-migration-notes.md` 明示 migrate_layout
+  只重写机器字段（config/chain/RESUME/anchor_map*.json）；`.review/` 叙述性
+  文本中的旧路径属历史记录，保留原样。
+- **R-5 校验器粗体容错（用户可见）**：`validate_report.py` squash 同时剥离
+  markdown 粗体星号，合并统计行数字被 `**粗体**` 包裹不再报「未找到」；
+  `templates/final-report.md` 合并统计行增机器解析注释（字样不得缺省改名）。
+- **R-6 pandoc 转义还原（用户可见）**：`bib_lint.py` GB/T 模式先把
+  `\[N\]`/`\[J\]`/`\[C\]` 等还原为 `[N]`/`[J]`/`[C]` 再切块，docx/tex→md
+  稿件的参考文献节不再解析为 0 条（实测 19 条 → 0 条的误判消除）。
+- 测试：+8 回归（setup_env 33 / validate_report 23 / bib_lint 12 /
+  extract_pdf 27）；`tests/test_paper_review/` 19 文件 325 用例全绿 +
+  `tests/test_lit_research/test_extract_pdf.py` 1 用例绿。
+
 ## 2026-11-11 — paper-review v2.1.0（G1–G4 已交付）
 
 > v2.1 按 `docs/handoff-20261108-paper-review-v2.md` §十一 分 G1–G4 四组实施。

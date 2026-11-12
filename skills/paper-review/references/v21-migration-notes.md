@@ -3,7 +3,7 @@
 > **读者**：在 paper-reviewer 等工作空间执行 `/v21-adopt` 的会话与用户。
 > 本文件是 v2.1 落地的**唯一权威移交口径**——与 `docs/handoff-20261108-paper-review-v2.md`
 > 备忘有出入处以本文件为准，不必回读备忘。
-> 版本：paper-review v2.1.0（G1–G4，2026-11-11）。技能安装副本路径以
+> 版本：paper-review v2.1.1（G1–G4 + 回流修复 R-1–R-6，2026-11-12）。技能安装副本路径以
 > `~/.claude/skills/paper-review/` 为准（下文简写 `{SKILL}`）。
 
 ---
