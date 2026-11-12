@@ -1,6 +1,6 @@
 # paper-review v2.1 实施账本
 
-- 当前组：done（v2.1.0 已发版、已安装、已推送远端）
+- 当前组：done（v2.1.1 回流修复已发版、已安装、已推送远端）
 - 更新时间：2026-11-12
 - 待补 push：无（2026-11-12 网络恢复后补推成功：main c17568d..09730ae；
   v2.1.0 为轻量标签不随 --follow-tags，已 `git push origin v2.1.0` 显式补推并
@@ -15,6 +15,7 @@
 | G3 | 11,18 | done | bbe578a | 18 文件 276 用例全绿 | 阶段1/2 各拆两段 Workflow，中间插 check_artifacts.py 门禁；防劫持条款进全部代理 prompt |
 | G4 | 10,22,1,2,3 | done | 593248b | 19 文件 317 用例全绿 + lit-research 1 用例绿 | 门禁 G1'（独立新建）/G2'（同轮追加）/G4（条目1/2/3 全部延后 v2.2）已裁决；条目 9 维持冻结 |
 | 发版 | Step 5 | done | 28e18c8 + tag v2.1.0 | 19 文件 317 + lit-research 1 = 318 全绿 | 门禁 G3 用户裁决执行三连；push 失败×3 记待补；install 校验：diff -rq 空 / 安装副本 version 2.1.0 / v21-migration-notes.md 已随装 |
+| 回流 | R-1~R-6 | done | 2c6adb4 / 939d832 / 3c3c425，发版 7e1f79e + tag v2.1.1 | 19 文件 325 + lit-research 1 = 326 全绿 | R-2 不可复现（警告路径随 R-1 消除）；R-4 落文档注记；其余四条代码修复 + 8 回归用例 |
 
 ### G1 明细（2026-11-11）
 
@@ -163,16 +164,37 @@
 （编号 / 现象 / 归属组 / 状态 / 提交号）
 
 - R-1 / setup_env `--re-review` 对历史版本 draft-v2.md 解析 round=r5 并写入 started_at，
-  覆盖既有轮次元数据；config rounds.r2.version=v2 映射未被使用 / G1 / doing /
-- R-2 / setup_env 警告行（「警告：文件版本 v1 低于 config 记录 v5…」）输出到 stdout，
-  污染 JSON，下游 json.load 失败 / G1 / doing /
+  覆盖既有轮次元数据；config rounds.r2.version=v2 映射未被使用 / G1 / **fixed**
+  （低版本拒绝初始化：success=false + exit 1，指明历史轮次并给 --new-run 出路；
+  拒绝时 config 字节级不变，实证复现确认后修复）/ 2c6adb4
+- R-2 / setup_env 警告行「污染 stdout JSON」/ G1 / **不可复现→路径消除**
+  （流分离实证：当前版警告本就走 stderr、stdout 纯 JSON、json.loads 成功；
+  下游所见为 Bash 工具合并显示 + stderr 无缓冲先出。R-1 修复后该警告路径整体删除，
+  场景变为显式 problems；回归测试锁定 stdout 纯净）/ 2c6adb4
 - R-3 / extract_pdf 默认 --min-image-size 60 在 186 页学位论文导出 531 张图
-  （图题仅 95），表格/碎片误当图片 / G4 / doing /
+  （图题仅 95），表格/碎片误当图片 / G4 / **fixed**（默认 60→150，docstring 记依据；
+  新增 100x100 图像夹具锁定默认过滤 + 显式 60 仍导出）/ 3c3c425
 - R-4 / migrate_layout 不重写 .review 叙述性路径与交付副本内历史命令（脚本口径
-  本就只改 config/chain/RESUME）/ G1 / doing（文档注记）/
-- R-5 / validate_report「合并统计」行解析过严：报告写粗体 `**P0 4 / …**` 即报未找到；
-  模板未给可复制的精确行 / G2 / doing /
-- R-6 / bib_lint 无法解析 pandoc 转义 `\[N\]`：19 条参考文献解析为 0 条 / G2 / doing /
+  本就只改 config/chain/RESUME）/ G1 / **fixed（文档注记）**（v21-migration-notes.md
+  §3 明示改写范围仅限机器字段，叙述性旧路径属历史记录保留）/ 2c6adb4
+- R-5 / validate_report「合并统计」行解析过严：报告写粗体 `**P0 4 / …**` 即报未找到 /
+  G2 / **fixed**（squash 剥离 `*`；templates/final-report.md 统计行增机器解析注释；
+  两个粗体变体回归用例）/ 939d832
+- R-6 / bib_lint 无法解析 pandoc 转义 `\[N\]`：19 条参考文献解析为 0 条 / G2 /
+  **fixed**（parse_gbt 先还原 `\[`/`\]` 再切块，[J]/[C] 检查照常触发；
+  转义夹具 2 用例）/ 939d832
+
+### 回流明细（2026-11-12，v2.1.1）
+
+- 复现：临时夹具模拟 q10 形态（current_version=v5、rounds r1/r2/r5、r5 无 started_at），
+  实证 R-1 污染（r5 被写 started_at+re_review:true、exit 0）与 R-2 不可复现
+  （stdout 纯 JSON、警告在 stderr 且 UTF-8）
+- 修复决策：R-1 取「拒绝 + --new-run 出路」而非「就地绑定历史轮次」——就地重审会
+  破坏已交付轮次产物不可变性且 current_round 语义混乱；拒绝路径不产生任何写盘副作用
+- 测试：+8 回归（setup_env 33 / validate_report 23 / bib_lint 12 / extract_pdf 27）；
+  全套 19 文件 325 + lit-research 1 = 326 全绿；守卫 15 绿
+- 发版：SKILL.md `version: 2.1.1`；CHANGELOG 2.1.1 节；README/SYNC-GUIDE/移交说明
+  版本行同步；commit 7e1f79e + tag v2.1.1（显式推送）；install 后 diff -rq 空
 
 ## 门禁裁决记录
 （门禁号 / 选项 / 用户裁决 / 日期）
