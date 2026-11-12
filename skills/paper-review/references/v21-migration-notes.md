@@ -81,6 +81,11 @@ stdout JSON 字段：`success` / `mode` / `root` / `scanned{papers,output_files}
 output/ → output.bak/，用户确认后再手工删）；退出码 0 成功 / 1 运行时失败
 （manifest 已记录，可 rollback 或重跑）/ 2 参数错误。
 
+**改写范围仅限机器字段**（回流 R-4 实测确认）：config.json / chain.md / RESUME.md
+与 anchor_map*.json 的路径字段会重写为 v2.1 口径；`.review/` 内叙述性文本
+（报告正文、「审计对象」行、历史命令记录）中的旧路径**保留原样**——属历史记录，
+不改写。照抄旧命令会失败，重放前按新布局人工核对。
+
 ## 4. 人工判定情形清单（pending.category）与推荐处置
 
 | category | 情形 | 推荐处置 |

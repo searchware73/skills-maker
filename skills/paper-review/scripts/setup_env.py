@@ -20,6 +20,8 @@
      - draft.md → v1；draft-vN.md → vN（第 N 个收到的稿件版本）
      - r<N> = 第 N 次审阅运行；产物一律路由到 {review_dir}/r<N>/；
        rounds.rN 记录 started_at（覆盖护栏 v1 跟踪判定用）
+     - 文件版本低于 config current_version 时拒绝初始化（回流 R-1：
+       不得改写既有轮次元数据）；确要对低版本开新轮全量重审须显式 --new-run
      - .review/config.json 为跨轮状态唯一权威源（doctype/source_root/
        豁免清单/撤回记录/用户裁决），已存在时合并保留；
        新结构写入 "layout": "flat-v2.1"（迁移脚本识别用）
@@ -637,6 +639,22 @@ def main():
         if form_err:
             problems.append(form_err)
 
+        # ── R-1 回流护栏：低版本文件不得绑定当前轮（会改写既有轮次元数据）──
+        if config is not None and not args.new_run:
+            cur_chk = config.get("current_version") or "v1"
+            cur_chk_no = int(cur_chk.lstrip("v") or 1)
+            if version_no < cur_chk_no:
+                rmap = config.get("rounds") or {}
+                hist = [rk for rk in sorted(rmap, key=lambda k: int(k.lstrip("r") or 0))
+                        if (rmap.get(rk) or {}).get("version") == version]
+                problems.append(
+                    "文件版本 %s 低于 config 当前版本 %s%s，拒绝初始化："
+                    "不得改写既有轮次元数据。如要以该版本开新轮全量重审请加 --new-run；"
+                    "要继续当前轮请改用 %s 对应的草稿"
+                    % (version, cur_chk,
+                       ("（该版本对应历史轮次 %s，不支持就地重审历史轮）" % hist[0]) if hist else "",
+                       cur_chk))
+
     if not problems:
         # ── 轮次判定 ──
         if config is None:
@@ -663,10 +681,8 @@ def main():
                 round_no = max_round + 1
                 config["current_version"] = version
             else:
+                # 同版本：复用当前轮（更低版本已被 R-1 护栏在前置拒绝）
                 round_no = max(1, max_round) if existing_rounds else max_round + 1
-                if version_no < cur_no:
-                    print("警告：文件版本 %s 低于 config 记录 %s，按当前轮次更新处理"
-                          % (version, cur_v), file=sys.stderr)
             # 旧结构（sources/ 已不存在）才盖 flat-v2.1 章，供 migrate_layout 识别
             if not os.path.isdir(os.path.join(paper_dir, "sources")):
                 config["layout"] = LAYOUT

@@ -65,7 +65,7 @@ v2.1 增补（对比 v2.0，G1–G4 四组落地）：目录扁平化为「每�
 | `--re-review` | 核验式复审（见 references/re-review-protocol.md） | 否 |
 | `--response FILE` | 修订版随附作者回复信（`<paper>/response/response-vN.md`，复审 R&R 追溯用） | 无 |
 | `--panel` | 复审面板范围：default=裁剪席位 / full=七席全开 | default |
-| `--new-run` | 对同一版本强制开启新轮次 r<N+1>（全量重审） | 复用当前轮次 |
+| `--new-run` | 对同一版本强制开启新轮次 r<N+1>（全量重审）；文件版本**低于** config 当前版本时必须显式加本参数，否则拒绝初始化（防改写历史轮次元数据，回流 R-1） | 复用当前轮次 |
 | `--expert-comments FILE` | 外部专家意见（`.md` 或 `.docx`；docx 由 expert_reconcile.py 原生解析，零第三方依赖），阶段1后启动对账；报告**交付后**才收到的意见不用本参数，走 Step 6 之后的「交付后追加对账」 | 无 |
 
 **路径占位符约定**：`{SKILL_DIR}` = 本 SKILL.md 所在目录；`{file_path}` `{paper_dir}`

@@ -499,5 +499,73 @@ class TestNewCliFlags(unittest.TestCase):
         self.assertIn("不是有效 docx", err)
 
 
+class TestHistoricVersionRefusal(unittest.TestCase):
+    """R-1/R-2 回流：文件版本低于 config 当前版本 → 拒绝初始化，
+    不得改写既有轮次元数据；stdout 保持纯 JSON；--new-run 为显式出路"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+        # q10 形态：根单文件 v1 源 + draft/ 子目录 + 既有 r1/r2/r5（r5 无 started_at）
+        os.makedirs(os.path.join(self.dir, "draft"))
+        os.makedirs(os.path.join(self.dir, ".review"))
+        with open(os.path.join(self.dir, "paper.docx"), "wb") as f:
+            f.write(b"PK\x03\x04dummy")
+        with open(os.path.join(self.dir, "draft", "draft.md"), "w",
+                  encoding="utf-8") as f:
+            f.write(DRAFT_V1)
+        with open(os.path.join(self.dir, "draft", "draft-v2.md"), "w",
+                  encoding="utf-8") as f:
+            f.write(DRAFT_V1.replace("背景介绍", "背景介绍（修订）"))
+        cfg = {
+            "schema": 2, "paper_dir": self.dir.replace("\\", "/"),
+            "doctype": "thesis", "layout": "flat-v2.1",
+            "versions": {"v1": {"source_root": ".", "draft": "draft/draft.md",
+                                "response": None, "source_file": "paper.docx"}},
+            "current_version": "v5",
+            "rounds": {
+                "r1": {"version": "v1", "started_at": "2026-10-01T00:00:00+08:00"},
+                "r2": {"version": "v2", "started_at": "2026-10-02T00:00:00+08:00"},
+                "r5": {"version": "v5"},
+            },
+            "current_round": "r5",
+            "exemptions": [], "withdrawals": [], "adjudications": [],
+        }
+        self.cfg_path = os.path.join(self.dir, ".review", "config.json")
+        with open(self.cfg_path, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        with open(self.cfg_path, "rb") as f:
+            self.before = f.read()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_historic_version_refused_config_untouched(self):
+        code, js, err = run_setup(self.dir, "--file",
+                                  os.path.join("draft", "draft-v2.md"),
+                                  "--re-review")
+        self.assertEqual(code, 1)
+        self.assertIsNotNone(js)            # stdout 仍是纯 JSON（R-2 口径）
+        self.assertFalse(js["success"])
+        self.assertTrue(any("--new-run" in p for p in js["problems"]), js)
+        self.assertIn("r2", "\n".join(js["problems"]))   # 指出对应历史轮次
+        with open(self.cfg_path, "rb") as f:
+            self.assertEqual(f.read(), self.before)    # config 字节级未动
+
+    def test_historic_version_new_run_escape(self):
+        code, js, err = run_setup(self.dir, "--file",
+                                  os.path.join("draft", "draft-v2.md"),
+                                  "--new-run")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(js["round"], "r6")
+        with open(self.cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        self.assertEqual(cfg["current_version"], "v2")
+        self.assertEqual(cfg["current_round"], "r6")
+        # 既有 r5 元数据未被触碰
+        self.assertNotIn("started_at", cfg["rounds"]["r5"])
+        self.assertNotIn("re_review", cfg["rounds"]["r5"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
